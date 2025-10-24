@@ -1,0 +1,26 @@
+# 环境变量配置说明
+# 请将此文件重命名为 .env 并填入实际配置
+
+# 服务器配置
+PORT=8080
+JWT_SECRET=comment-review-secret-key-2025
+
+# Redis 配置 (Upstash with TLS)
+REDIS_ADDR=rediss://default:YOUR_PASSWORD@YOUR_HOST:6379
+REDIS_PASSWORD=YOUR_PASSWORD
+REDIS_DB=0
+REDIS_USE_TLS=true
+
+# PostgreSQL 配置 (Supabase)
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@YOUR_HOST:5432/postgres
+
+# 任务配置
+TASK_CLAIM_SIZE=20
+TASK_TIMEOUT_MINUTES=30
+
+# 注意事项：
+# 1. JWT_SECRET 在生产环境中应该使用强随机字符串
+# 2. REDIS_ADDR 必须以 rediss:// 开头（双 s 表示 TLS）
+# 3. 数据库密码和敏感信息请妥善保管
+# 4. 不要将 .env 文件提交到代码仓库
+
