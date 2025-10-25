@@ -6,7 +6,15 @@
           <span class="title">
             <i class="el-icon-document"></i> 审核规则库
           </span>
-          <el-tag effect="dark">共 {{ total }} 条规则</el-tag>
+          <div class="header-actions">
+            <el-tag effect="dark">共 {{ total }} 条规则</el-tag>
+            <el-button type="primary" @click="openAddDialog">
+              <i class="el-icon-plus"></i> 新增规则
+            </el-button>
+            <el-button @click="refreshRules">
+              <i class="el-icon-refresh"></i> 刷新
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -60,7 +68,7 @@
 
       <!-- Rules Table -->
       <el-table
-        :data="rules"
+        :data="filteredRules"
         stripe
         style="width: 100%; margin-top: 20px"
         v-loading="loading"
@@ -143,6 +151,29 @@
             {{ formatDateTime(row.updated_at) }}
           </template>
         </el-table-column>
+
+        <!-- Actions -->
+        <el-table-column label="操作" width="140" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openEditDialog(row)">
+              编辑
+            </el-button>
+            <el-divider direction="vertical" />
+            <el-popconfirm
+              title="确认删除此规则吗？"
+              description="此操作不可撤销"
+              confirm-button-text="确认"
+              cancel-button-text="取消"
+              @confirm="deleteRule(row.id)"
+            >
+              <template #reference>
+                <el-button link type="danger" size="small">
+                  删除
+                </el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
       </el-table>
 
       <!-- Pagination -->
@@ -150,7 +181,7 @@
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
         :page-sizes="[10, 20, 50, 100]"
-        :total="total"
+        :total="filteredTotal"
         layout="total, sizes, prev, pager, next, jumper"
         style="margin-top: 20px; text-align: right"
         @size-change="handlePageSizeChange"
@@ -191,6 +222,13 @@
         ></el-statistic>
       </el-col>
     </el-row>
+
+    <!-- Rule Dialog for Add/Edit -->
+    <RuleDialog
+      v-model:visible="ruleDialogVisible"
+      :editing-rule="editingRule"
+      @success="handleDialogSuccess"
+    />
   </div>
 </template>
 
@@ -198,22 +236,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
-
-interface ModerationRule {
-  id: number
-  rule_code: string
-  category: string
-  subcategory: string
-  description: string
-  judgment_criteria: string
-  risk_level: 'L' | 'M' | 'H' | 'C'
-  action: string
-  boundary: string
-  examples: string
-  quick_tag?: string
-  created_at: string
-  updated_at: string
-}
+import RuleDialog from '@/components/RuleDialog.vue'
+import type { ModerationRule } from '@/types'
+import * as moderationApi from '@/api/moderation'
 
 interface ListResponse {
   data: ModerationRule[]
@@ -223,7 +248,7 @@ interface ListResponse {
   total_pages: number
 }
 
-const rules = ref<ModerationRule[]>([])
+const allRules = ref<ModerationRule[]>([])
 const categories = ref<string[]>([])
 const loading = ref(false)
 const searchText = ref('')
@@ -233,15 +258,43 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 
+const ruleDialogVisible = ref(false)
+const editingRule = ref<ModerationRule | null>(null)
+
 const riskStats = computed(() => {
   const stats = { L: 0, M: 0, H: 0, C: 0 }
-  rules.value.forEach((rule) => {
+  allRules.value.forEach((rule) => {
     if (rule.risk_level in stats) {
       stats[rule.risk_level as 'L' | 'M' | 'H' | 'C']++
     }
   })
   return stats
 })
+
+// Client-side filtering of all rules
+const filteredRules = computed(() => {
+  let filtered = allRules.value
+
+  if (searchText.value) {
+    const search = searchText.value.toLowerCase()
+    filtered = filtered.filter((rule) =>
+      rule.rule_code.toLowerCase().includes(search) ||
+      rule.description.toLowerCase().includes(search)
+    )
+  }
+
+  if (selectedCategory.value) {
+    filtered = filtered.filter((rule) => rule.category === selectedCategory.value)
+  }
+
+  if (selectedRiskLevel.value) {
+    filtered = filtered.filter((rule) => rule.risk_level === selectedRiskLevel.value)
+  }
+
+  return filtered
+})
+
+const filteredTotal = computed(() => filteredRules.value.length)
 
 const getRiskLevelType = (level: string): string => {
   const typeMap: Record<string, string> = {
@@ -272,30 +325,49 @@ const formatDateTime = (dateTime: string): string => {
   }
 }
 
-const fetchRules = async () => {
+const fetchAllRules = async (useCache: boolean = true) => {
   loading.value = true
   try {
-    const params: Record<string, any> = {
-      page: currentPage.value,
-      page_size: pageSize.value
+    // Check cache first (30 minute expiration)
+    const cacheKey = 'moderation_rules_cache'
+    const cacheTimestampKey = 'moderation_rules_cache_time'
+    const now = Date.now()
+    const thirtyMinutes = 30 * 60 * 1000
+
+    if (useCache) {
+      const cachedData = localStorage.getItem(cacheKey)
+      const cachedTime = localStorage.getItem(cacheTimestampKey)
+
+      if (cachedData && cachedTime) {
+        const cacheAge = now - parseInt(cachedTime)
+        if (cacheAge < thirtyMinutes) {
+          // Cache is still valid
+          try {
+            const parsed = JSON.parse(cachedData)
+            allRules.value = parsed.data || []
+            total.value = parsed.total || 0
+            currentPage.value = 1
+            console.log(`📦 Loaded ${allRules.value.length} rules from cache (age: ${Math.round(cacheAge / 1000)}s)`)
+            return
+          } catch (e) {
+            console.warn('Failed to parse cached rules:', e)
+          }
+        }
+      }
     }
 
-    if (searchText.value) {
-      params.search = searchText.value
-    }
-    if (selectedCategory.value) {
-      params.category = selectedCategory.value
-    }
-    if (selectedRiskLevel.value) {
-      params.risk_level = selectedRiskLevel.value
-    }
+    // Fetch from API using the new getAllRules endpoint
+    const response = await moderationApi.getAllRules()
 
-    const response = await request.get<ListResponse>('/moderation-rules', {
-      params
-    })
+    allRules.value = response.data || []
+    total.value = response.total || 0
+    currentPage.value = 1
 
-    rules.value = response.data.data || []
-    total.value = response.data.total || 0
+    // Store in cache
+    localStorage.setItem(cacheKey, JSON.stringify(response))
+    localStorage.setItem(cacheTimestampKey, now.toString())
+
+    console.log(`✅ Fetched and cached ${allRules.value.length} rules from API`)
   } catch (error) {
     ElMessage.error('加载规则失败')
     console.error(error)
@@ -309,7 +381,8 @@ const fetchCategories = async () => {
     const response = await request.get<{ categories: string[] }>(
       '/moderation-rules/categories'
     )
-    categories.value = response.data.categories || []
+    categories.value = response.categories || []
+    console.log(`✅ Loaded ${categories.value.length} categories`)
   } catch (error) {
     console.error('Failed to fetch categories:', error)
   }
@@ -317,32 +390,60 @@ const fetchCategories = async () => {
 
 const handleSearch = () => {
   currentPage.value = 1
-  fetchRules()
 }
 
 const handleFilterChange = () => {
   currentPage.value = 1
-  fetchRules()
 }
 
 const handlePageChange = (page: number) => {
   currentPage.value = page
-  fetchRules()
 }
 
 const handlePageSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
-  fetchRules()
 }
 
-const handleExpandChange = (row: ModerationRule, expandedRows: ModerationRule[]) => {
+const handleExpandChange = (_row: ModerationRule, _expandedRows: ModerationRule[]) => {
   // Row details are displayed via expansion panel
+}
+
+const openAddDialog = () => {
+  editingRule.value = null
+  ruleDialogVisible.value = true
+}
+
+const openEditDialog = (rule: ModerationRule) => {
+  editingRule.value = rule
+  ruleDialogVisible.value = true
+}
+
+const deleteRule = async (id: number) => {
+  try {
+    await moderationApi.deleteRule(id)
+    ElMessage.success('规则删除成功')
+    await fetchAllRules()
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.error || '删除失败')
+    console.error(error)
+  }
+}
+
+const handleDialogSuccess = async () => {
+  await fetchAllRules()
+}
+
+const refreshRules = () => {
+  ElMessage.success('正在刷新规则库...')
+  localStorage.removeItem('moderation_rules_cache')
+  localStorage.removeItem('moderation_rules_cache_time')
+  fetchAllRules(false) // Force fetch from API
 }
 
 onMounted(() => {
   fetchCategories()
-  fetchRules()
+  fetchAllRules()
 })
 </script>
 
@@ -354,6 +455,7 @@ onMounted(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    width: 100%;
 
     .title {
       font-size: 18px;
@@ -363,6 +465,12 @@ onMounted(() => {
       i {
         margin-right: 8px;
       }
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 15px;
+      align-items: center;
     }
   }
 
@@ -438,6 +546,17 @@ onMounted(() => {
 @media (max-width: 768px) {
   .moderation-rules-container {
     padding: 10px;
+
+    .card-header {
+      flex-direction: column;
+      gap: 10px;
+      align-items: flex-start;
+
+      .header-actions {
+        width: 100%;
+        flex-direction: column;
+      }
+    }
 
     :deep(.el-table) {
       font-size: 12px;

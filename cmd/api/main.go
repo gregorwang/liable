@@ -106,6 +106,7 @@ func setupRouter(db interface{}) *gin.Engine {
 		modRules := api.Group("/moderation-rules")
 		{
 			modRules.GET("", moderationRulesHandler.ListRules)
+			modRules.GET("/all", moderationRulesHandler.GetAllRules)
 			modRules.GET("/:code", moderationRulesHandler.GetRuleByCode)
 			modRules.GET("/categories", moderationRulesHandler.GetCategories)
 			modRules.GET("/risk-levels", moderationRulesHandler.GetRiskLevels)
@@ -147,6 +148,11 @@ func setupRouter(db interface{}) *gin.Engine {
 			admin.POST("/tags", adminHandler.CreateTag)
 			admin.PUT("/tags/:id", adminHandler.UpdateTag)
 			admin.DELETE("/tags/:id", adminHandler.DeleteTag)
+
+			// Moderation Rules management
+			admin.POST("/moderation-rules", moderationRulesHandler.CreateRule)
+			admin.PUT("/moderation-rules/:id", moderationRulesHandler.UpdateRule)
+			admin.DELETE("/moderation-rules/:id", moderationRulesHandler.DeleteRule)
 		}
 	}
 

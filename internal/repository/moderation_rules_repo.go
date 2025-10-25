@@ -23,7 +23,7 @@ func (r *ModerationRulesRepository) ListRules(req *models.ListModerationRulesReq
 	if req.Page < 1 {
 		req.Page = 1
 	}
-	if req.PageSize < 1 || req.PageSize > 100 {
+	if req.PageSize < 1 || req.PageSize > 1000 {
 		req.PageSize = 20
 	}
 
@@ -59,7 +59,7 @@ func (r *ModerationRulesRepository) ListRules(req *models.ListModerationRulesReq
 
 	// Get total count
 	var total int
-	countArgs := args[:len(args)]
+	countArgs := args
 	err := r.db.QueryRow(countQuery, countArgs...).Scan(&total)
 	if err != nil {
 		return nil, 0, err
@@ -100,6 +100,44 @@ func (r *ModerationRulesRepository) ListRules(req *models.ListModerationRulesReq
 		rules = append(rules, rule)
 	}
 
+	return rules, total, rows.Err()
+}
+
+// GetAllRules retrieves all moderation rules without pagination
+func (r *ModerationRulesRepository) GetAllRules() ([]models.ModerationRule, int, error) {
+	query := "SELECT id, rule_code, category, subcategory, description, judgment_criteria, risk_level, action, boundary, examples, quick_tag, created_at, updated_at FROM moderation_rules ORDER BY rule_code ASC"
+
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var rules []models.ModerationRule
+	for rows.Next() {
+		var rule models.ModerationRule
+		err := rows.Scan(
+			&rule.ID,
+			&rule.RuleCode,
+			&rule.Category,
+			&rule.Subcategory,
+			&rule.Description,
+			&rule.JudgmentCriteria,
+			&rule.RiskLevel,
+			&rule.Action,
+			&rule.Boundary,
+			&rule.Examples,
+			&rule.QuickTag,
+			&rule.CreatedAt,
+			&rule.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		rules = append(rules, rule)
+	}
+
+	total := len(rules)
 	return rules, total, rows.Err()
 }
 
@@ -173,4 +211,99 @@ func (r *ModerationRulesRepository) GetRiskLevels() ([]string, error) {
 	}
 
 	return levels, rows.Err()
+}
+
+// GetRuleByID retrieves a single rule by its ID
+func (r *ModerationRulesRepository) GetRuleByID(id int64) (*models.ModerationRule, error) {
+	var rule models.ModerationRule
+	err := r.db.QueryRow(
+		"SELECT id, rule_code, category, subcategory, description, judgment_criteria, risk_level, action, boundary, examples, quick_tag, created_at, updated_at FROM moderation_rules WHERE id = $1",
+		id,
+	).Scan(
+		&rule.ID,
+		&rule.RuleCode,
+		&rule.Category,
+		&rule.Subcategory,
+		&rule.Description,
+		&rule.JudgmentCriteria,
+		&rule.RiskLevel,
+		&rule.Action,
+		&rule.Boundary,
+		&rule.Examples,
+		&rule.QuickTag,
+		&rule.CreatedAt,
+		&rule.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &rule, nil
+}
+
+// CreateRule creates a new moderation rule
+func (r *ModerationRulesRepository) CreateRule(rule *models.ModerationRule) (*models.ModerationRule, error) {
+	err := r.db.QueryRow(
+		`INSERT INTO moderation_rules 
+		(rule_code, category, subcategory, description, judgment_criteria, risk_level, action, boundary, examples, quick_tag, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		RETURNING id, created_at, updated_at`,
+		rule.RuleCode, rule.Category, rule.Subcategory, rule.Description, rule.JudgmentCriteria,
+		rule.RiskLevel, rule.Action, rule.Boundary, rule.Examples, rule.QuickTag,
+	).Scan(&rule.ID, &rule.CreatedAt, &rule.UpdatedAt)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rule, nil
+}
+
+// UpdateRule updates an existing moderation rule
+func (r *ModerationRulesRepository) UpdateRule(rule *models.ModerationRule) (*models.ModerationRule, error) {
+	err := r.db.QueryRow(
+		`UPDATE moderation_rules 
+		SET rule_code = $1, category = $2, subcategory = $3, description = $4, judgment_criteria = $5, 
+		    risk_level = $6, action = $7, boundary = $8, examples = $9, quick_tag = $10, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $11
+		RETURNING id, rule_code, category, subcategory, description, judgment_criteria, risk_level, action, boundary, examples, quick_tag, created_at, updated_at`,
+		rule.RuleCode, rule.Category, rule.Subcategory, rule.Description, rule.JudgmentCriteria,
+		rule.RiskLevel, rule.Action, rule.Boundary, rule.Examples, rule.QuickTag, rule.ID,
+	).Scan(
+		&rule.ID, &rule.RuleCode, &rule.Category, &rule.Subcategory, &rule.Description,
+		&rule.JudgmentCriteria, &rule.RiskLevel, &rule.Action, &rule.Boundary, &rule.Examples,
+		&rule.QuickTag, &rule.CreatedAt, &rule.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("rule not found")
+		}
+		return nil, err
+	}
+
+	return rule, nil
+}
+
+// DeleteRule deletes a moderation rule by ID
+func (r *ModerationRulesRepository) DeleteRule(id int64) error {
+	result, err := r.db.Exec("DELETE FROM moderation_rules WHERE id = $1", id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("rule not found")
+	}
+
+	return nil
 }

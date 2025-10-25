@@ -137,3 +137,28 @@ export interface SearchTasksResponse {
   total_pages: number
 }
 
+// Moderation Rules types
+export interface ModerationRule {
+  id?: number
+  rule_code: string
+  category: string
+  subcategory: string
+  description: string
+  judgment_criteria?: string
+  risk_level: 'L' | 'M' | 'H' | 'C'
+  action?: string
+  boundary?: string
+  examples?: string
+  quick_tag?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ListModerationRulesResponse {
+  data: ModerationRule[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+

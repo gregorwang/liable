@@ -30,7 +30,7 @@ func NewModerationRulesHandler(db *sql.DB) *ModerationRulesHandler {
 //   - risk_level: filter by risk level (L/M/H/C)
 //   - search: search by rule code or description
 //   - page: page number (default 1)
-//   - page_size: items per page (default 20, max 100)
+//   - page_size: items per page (default 20, max 1000)
 func (h *ModerationRulesHandler) ListRules(c *gin.Context) {
 	// Parse query parameters
 	req := &models.ListModerationRulesRequest{
@@ -74,6 +74,26 @@ func (h *ModerationRulesHandler) ListRules(c *gin.Context) {
 		Page:       req.Page,
 		PageSize:   req.PageSize,
 		TotalPages: totalPages,
+	})
+}
+
+// GetAllRules returns ALL moderation rules without pagination
+// GET /api/moderation-rules/all
+func (h *ModerationRulesHandler) GetAllRules(c *gin.Context) {
+	rules, total, err := h.rulesRepo.GetAllRules()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch rules",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.ListModerationRulesResponse{
+		Data:       rules,
+		Total:      total,
+		Page:       1,
+		PageSize:   total,
+		TotalPages: 1,
 	})
 }
 
@@ -136,4 +156,122 @@ func (h *ModerationRulesHandler) GetRiskLevels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"levels": levels,
 	})
+}
+
+// CreateRule creates a new moderation rule
+// POST /api/moderation-rules
+func (h *ModerationRulesHandler) CreateRule(c *gin.Context) {
+	var rule models.ModerationRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
+		})
+		return
+	}
+
+	// Validate required fields
+	if rule.RuleCode == "" || rule.Category == "" || rule.Subcategory == "" || rule.Description == "" || rule.RiskLevel == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing required fields: rule_code, category, subcategory, description, risk_level",
+		})
+		return
+	}
+
+	// Validate risk level
+	if !isValidRiskLevel(rule.RiskLevel) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid risk_level. Must be one of: L, M, H, C",
+		})
+		return
+	}
+
+	createdRule, err := h.rulesRepo.CreateRule(&rule)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to create rule",
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, createdRule)
+}
+
+// UpdateRule updates an existing moderation rule
+// PUT /api/moderation-rules/:id
+func (h *ModerationRulesHandler) UpdateRule(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid rule ID",
+		})
+		return
+	}
+
+	var rule models.ModerationRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request body",
+		})
+		return
+	}
+
+	rule.ID = int(id)
+
+	// Validate required fields
+	if rule.RuleCode == "" || rule.Category == "" || rule.Subcategory == "" || rule.Description == "" || rule.RiskLevel == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Missing required fields: rule_code, category, subcategory, description, risk_level",
+		})
+		return
+	}
+
+	// Validate risk level
+	if !isValidRiskLevel(rule.RiskLevel) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid risk_level. Must be one of: L, M, H, C",
+		})
+		return
+	}
+
+	updatedRule, err := h.rulesRepo.UpdateRule(&rule)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to update rule",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, updatedRule)
+}
+
+// DeleteRule deletes a moderation rule
+// DELETE /api/moderation-rules/:id
+func (h *ModerationRulesHandler) DeleteRule(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid rule ID",
+		})
+		return
+	}
+
+	err = h.rulesRepo.DeleteRule(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to delete rule",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Rule deleted successfully",
+	})
+}
+
+// Helper function to validate risk level
+func isValidRiskLevel(level string) bool {
+	validLevels := map[string]bool{"L": true, "M": true, "H": true, "C": true}
+	return validLevels[level]
 }
