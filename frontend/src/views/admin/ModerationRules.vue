@@ -448,34 +448,49 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* ============================================
+   审核规则库页面样式
+   ============================================ */
 .moderation-rules-container {
-  padding: 20px;
+  padding: var(--spacing-8);
+  background-color: var(--color-bg-100);
+  min-height: 100vh;
 
+  /* ============================================
+     卡片头部
+     ============================================ */
   .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     width: 100%;
+    gap: var(--spacing-4);
 
     .title {
-      font-size: 18px;
+      font-size: var(--text-xl);
       font-weight: 600;
-      color: #303133;
+      color: var(--color-text-000);
+      letter-spacing: var(--tracking-tight);
 
       i {
-        margin-right: 8px;
+        margin-right: var(--spacing-2);
+        color: var(--color-accent-main);
       }
     }
 
     .header-actions {
       display: flex;
-      gap: 15px;
+      gap: var(--spacing-4);
       align-items: center;
+      flex-wrap: wrap;
     }
   }
 
+  /* ============================================
+     搜索栏
+     ============================================ */
   .search-bar {
-    margin-bottom: 20px;
+    margin-bottom: var(--spacing-6);
 
     :deep(.el-select) {
       width: 100%;
@@ -486,85 +501,173 @@ onMounted(() => {
     }
   }
 
+  /* ============================================
+     展开详情区域
+     ============================================ */
   .expand-details {
-    padding: 20px;
-    background-color: #f5f7fa;
-    border-radius: 4px;
+    padding: var(--spacing-6);
+    background-color: var(--color-bg-200);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border-lighter);
+    margin: var(--spacing-4) 0;
 
     .detail-section {
-      margin-bottom: 10px;
+      margin-bottom: var(--spacing-5);
+
+      &:last-child {
+        margin-bottom: 0;
+      }
 
       h4 {
-        margin: 0 0 8px 0;
-        font-size: 14px;
+        margin: 0 0 var(--spacing-3) 0;
+        font-size: var(--text-base);
         font-weight: 600;
-        color: #606266;
+        color: var(--color-text-100);
+        letter-spacing: var(--tracking-wide);
       }
 
       p {
         margin: 0;
-        color: #606266;
-        line-height: 1.6;
+        color: var(--color-text-200);
+        line-height: var(--leading-relaxed);
         white-space: pre-wrap;
         word-break: break-word;
+        font-size: var(--text-sm);
+        letter-spacing: var(--tracking-normal);
+        padding: var(--spacing-3);
+        background-color: var(--color-bg-000);
+        border-radius: var(--radius-md);
+        border-left: 3px solid var(--color-accent-main);
       }
     }
   }
 
+  /* ============================================
+     规则编号标签
+     ============================================ */
   .rule-code-tag {
     font-weight: 600;
-    letter-spacing: 1px;
+    letter-spacing: var(--tracking-wider);
+    font-family: var(--font-mono);
   }
 
+  /* ============================================
+     弱化文本
+     ============================================ */
   .text-muted {
-    color: #909399;
+    color: var(--color-text-400);
+    font-size: var(--text-sm);
   }
 
+  /* ============================================
+     表格样式增强
+     ============================================ */
   :deep(.el-table) {
     .el-table__row {
+      transition: background-color var(--transition-fast);
+
       &:hover {
-        background-color: #f5f7fa;
+        background-color: var(--color-bg-200);
+      }
+    }
+
+    .el-table__cell {
+      padding: var(--spacing-4) var(--spacing-3);
+    }
+
+    .el-table__header {
+      th {
+        font-size: var(--text-sm);
+        font-weight: 600;
+        letter-spacing: var(--tracking-wide);
+      }
+    }
+
+    .el-table__body {
+      td {
+        font-size: var(--text-sm);
+        line-height: var(--leading-relaxed);
       }
     }
   }
 
+  /* ============================================
+     统计数字样式
+     ============================================ */
   :deep(.el-statistic) {
+    .el-statistic__content {
+      font-weight: 600;
+    }
+
     &.risk-c {
-      color: #f56c6c;
+      color: var(--color-danger);
     }
 
     &.risk-h {
-      color: #e6a23c;
+      color: var(--color-warning);
     }
   }
 
+  /* ============================================
+     分页样式
+     ============================================ */
   :deep(.el-pagination) {
-    margin-top: 20px;
+    margin-top: var(--spacing-6);
+    padding: var(--spacing-4) 0;
+    display: flex;
+    justify-content: center;
   }
 }
 
+/* ============================================
+   响应式设计
+   ============================================ */
 @media (max-width: 768px) {
   .moderation-rules-container {
-    padding: 10px;
+    padding: var(--spacing-4);
 
     .card-header {
       flex-direction: column;
-      gap: 10px;
+      gap: var(--spacing-3);
       align-items: flex-start;
 
       .header-actions {
         width: 100%;
         flex-direction: column;
+        gap: var(--spacing-2);
       }
     }
 
     :deep(.el-table) {
-      font-size: 12px;
+      font-size: var(--text-xs);
+
+      .el-table__cell {
+        padding: var(--spacing-2);
+      }
     }
 
     .expand-details {
-      padding: 10px;
+      padding: var(--spacing-4);
+
+      .detail-section {
+        margin-bottom: var(--spacing-3);
+
+        h4 {
+          font-size: var(--text-sm);
+        }
+
+        p {
+          font-size: var(--text-xs);
+          padding: var(--spacing-2);
+        }
+      }
     }
+  }
+}
+
+@media (max-width: 1024px) {
+  .moderation-rules-container {
+    padding: var(--spacing-6);
   }
 }
 </style>

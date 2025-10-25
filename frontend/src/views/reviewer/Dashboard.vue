@@ -398,16 +398,27 @@ const handleLogout = async () => {
 </script>
 
 <style scoped>
+/* ============================================
+   审核员工作台样式
+   ============================================ */
 .reviewer-dashboard {
-  height: 100vh;
-  background: #f5f7fa;
+  min-height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-100);
 }
 
+/* ============================================
+   头部样式
+   ============================================ */
 .header {
-  background: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  background: var(--color-bg-000);
+  box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
+  border-bottom: 1px solid var(--color-border-lighter);
+  flex-shrink: 0;
 }
 
 .header-content {
@@ -415,106 +426,197 @@ const handleLogout = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 0 var(--spacing-2);
 }
 
 .header-content h2 {
   margin: 0;
-  font-size: 20px;
-  color: #303133;
+  font-size: var(--text-2xl);
+  color: var(--color-text-000);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
 }
 
 .header-left {
   display: flex;
   align-items: center;
+  gap: var(--spacing-4);
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--spacing-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-200);
+  letter-spacing: var(--tracking-wide);
 }
 
+/* ============================================
+   主内容区域
+   ============================================ */
 .main-content {
-  max-width: 1200px;
+  max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
-  padding: 24px;
+  padding: var(--spacing-8);
+  flex: 1;
+  overflow-y: auto;
 }
 
+/* ============================================
+   统计栏
+   ============================================ */
 .stats-bar {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--spacing-5);
+  margin-bottom: var(--spacing-6);
 }
 
 .stat-item {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-3);
+  padding: var(--spacing-2);
 }
 
 .stat-label {
-  font-size: 14px;
-  color: #909399;
+  font-size: var(--text-sm);
+  color: var(--color-text-400);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
 }
 
 .stat-value {
-  font-size: 32px;
-  font-weight: bold;
-  color: #409eff;
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  color: var(--color-accent-main);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
 }
 
+/* ============================================
+   操作栏
+   ============================================ */
 .actions-bar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-6);
   flex-wrap: wrap;
+  padding: var(--spacing-5);
+  background: var(--color-bg-000);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-lighter);
+  box-shadow: var(--shadow-sm);
 }
 
-.claim-section {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
+.claim-section,
 .return-section {
   display: flex;
-  gap: 8px;
+  gap: var(--spacing-2);
   align-items: center;
 }
 
+/* ============================================
+   空状态
+   ============================================ */
 .empty-state {
-  padding: 60px 0;
+  padding: var(--spacing-20) 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
+/* ============================================
+   任务卡片容器
+   ============================================ */
 .tasks-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--spacing-5);
 }
 
 .task-card {
-  transition: transform 0.2s;
+  transition: all var(--transition-base);
+  border: 1px solid var(--color-border-lighter);
 }
 
 .task-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-accent-main);
 }
 
+/* ============================================
+   评论文本区域
+   ============================================ */
 .comment-text {
-  font-size: 16px;
-  line-height: 1.8;
-  color: #303133;
-  padding: 12px;
-  background: #f5f7fa;
-  border-radius: 4px;
-  margin-bottom: 16px;
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  line-height: var(--leading-loose);
+  color: var(--color-text-100);
+  padding: var(--spacing-5);
+  background: var(--color-bg-200);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-4);
+  letter-spacing: var(--tracking-wide);
+  border-left: 4px solid var(--color-accent-main);
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
+/* ============================================
+   任务操作区域
+   ============================================ */
 .task-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 16px;
+  margin-top: var(--spacing-5);
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--color-border-lighter);
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 768px) {
+  .main-content {
+    padding: var(--spacing-4);
+  }
+
+  .stats-bar {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-3);
+  }
+
+  .actions-bar {
+    flex-direction: column;
+    gap: var(--spacing-2);
+    padding: var(--spacing-3);
+  }
+
+  .claim-section,
+  .return-section {
+    width: 100%;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .stat-value {
+    font-size: var(--text-3xl);
+  }
+
+  .comment-text {
+    font-size: var(--text-sm);
+    padding: var(--spacing-3);
+  }
+}
+
+@media (max-width: 1024px) {
+  .main-content {
+    padding: var(--spacing-6);
+  }
 }
 </style>
 

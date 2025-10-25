@@ -3,21 +3,9 @@
 </template>
 
 <script setup lang="ts">
+// 应用根组件 - App Root Component
 </script>
 
 <style>
-#app {
-  width: 100%;
-  height: 100vh;
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-}
+/* App.vue 仅负责引入全局样式，具体样式在 style.css 中定义 */
 </style>

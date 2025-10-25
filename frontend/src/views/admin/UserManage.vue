@@ -188,34 +188,56 @@ const handleLogout = async () => {
 </script>
 
 <style scoped>
+/* ============================================
+   布局结构
+   ============================================ */
 .admin-layout {
   height: 100vh;
+  height: 100dvh;
+  display: flex;
+  overflow: hidden;
 }
 
+/* ============================================
+   侧边栏样式
+   ============================================ */
 .sidebar {
-  background: #304156;
+  background: linear-gradient(180deg, 
+    var(--color-accent-pro-dark) 0%, 
+    hsl(251, 55%, 28%) 100%);
   overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  border-right: 1px solid var(--color-border);
 }
 
 .logo {
-  height: 60px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.1);
+  padding: var(--spacing-4);
 }
 
 .logo h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
 }
 
+/* ============================================
+   头部样式
+   ============================================ */
 .header {
-  background: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  background: var(--color-bg-000);
+  box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
+  border-bottom: 1px solid var(--color-border-lighter);
 }
 
 .header-content {
@@ -223,23 +245,42 @@ const handleLogout = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 0 var(--spacing-2);
 }
 
 .header-content h2 {
   margin: 0;
-  font-size: 20px;
-  color: #303133;
+  font-size: var(--text-2xl);
+  color: var(--color-text-000);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--spacing-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-200);
+  letter-spacing: var(--tracking-wide);
 }
 
+/* ============================================
+   主内容区域
+   ============================================ */
 .main-content {
-  background: #f5f7fa;
-  padding: 24px;
+  background: var(--color-bg-100);
+  padding: var(--spacing-8);
+  overflow-y: auto;
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 768px) {
+  .main-content {
+    padding: var(--spacing-4);
+  }
 }
 </style>
 

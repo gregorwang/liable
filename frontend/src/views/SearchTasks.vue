@@ -409,27 +409,136 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ============================================
+   搜索任务页面样式
+   ============================================ */
 .search-tasks-container {
-  padding: 20px;
+  padding: var(--spacing-8);
+  background-color: var(--color-bg-100);
+  min-height: 100vh;
 }
 
+/* ============================================
+   卡片头部
+   ============================================ */
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--spacing-4);
+  flex-wrap: wrap;
 }
 
 .title {
-  font-size: 18px;
-  font-weight: bold;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text-000);
+  letter-spacing: var(--tracking-tight);
 }
 
+/* ============================================
+   搜索表单
+   ============================================ */
 .search-form {
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-6);
+  padding: var(--spacing-6);
+  background: var(--color-bg-000);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-lighter);
+  box-shadow: var(--shadow-sm);
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 15px;
+  margin-bottom: var(--spacing-5);
+}
+
+:deep(.el-form-item__label) {
+  font-weight: 600;
+  color: var(--color-text-100);
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: var(--spacing-2);
+}
+
+:deep(.el-date-editor) {
+  width: 100%;
+}
+
+:deep(.el-select) {
+  width: 100%;
+}
+
+/* ============================================
+   表格增强
+   ============================================ */
+:deep(.el-table) {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:deep(.el-table__row) {
+  transition: background-color var(--transition-fast);
+}
+
+:deep(.el-table__row:hover) {
+  background-color: var(--color-bg-200);
+}
+
+:deep(.el-table__cell) {
+  padding: var(--spacing-4) var(--spacing-3);
+  line-height: var(--leading-relaxed);
+  letter-spacing: var(--tracking-normal);
+}
+
+:deep(.el-table th.el-table__cell) {
+  background-color: var(--color-bg-300);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+}
+
+:deep(.el-table td.el-table__cell) {
+  font-size: var(--text-sm);
+}
+
+/* ============================================
+   分页样式
+   ============================================ */
+:deep(.el-pagination) {
+  margin-top: var(--spacing-6);
+  padding: var(--spacing-4) 0;
+  justify-content: center;
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 768px) {
+  .search-tasks-container {
+    padding: var(--spacing-4);
+  }
+
+  .search-form {
+    padding: var(--spacing-4);
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  :deep(.el-form-item) {
+    margin-bottom: var(--spacing-3);
+  }
+
+  :deep(.el-table__cell) {
+    padding: var(--spacing-2);
+    font-size: var(--text-xs);
+  }
+}
+
+@media (max-width: 1024px) {
+  .search-tasks-container {
+    padding: var(--spacing-6);
+  }
 }
 </style>
 

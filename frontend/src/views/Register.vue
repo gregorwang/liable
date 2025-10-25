@@ -133,33 +133,178 @@ const goToLogin = () => {
 </script>
 
 <style scoped>
+/* ============================================
+   注册页面样式（复用登录页面样式）
+   ============================================ */
 .register-container {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100dvh;
+  padding: var(--spacing-4);
+  background: linear-gradient(135deg, 
+    var(--color-accent-main) 0%,
+    var(--color-accent-pro-dark) 50%, 
+    var(--color-accent-pro) 100%
+  );
+  position: relative;
+  overflow: hidden;
 }
 
+/* 背景装饰 */
+.register-container::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, 
+    rgba(255, 255, 255, 0.1) 1px, 
+    transparent 1px
+  );
+  background-size: 50px 50px;
+  animation: backgroundMove 60s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes backgroundMove {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(50px, 50px);
+  }
+}
+
+/* ============================================
+   注册卡片
+   ============================================ */
 .register-card {
-  width: 420px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 460px;
+  box-shadow: var(--shadow-2xl);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+  z-index: 1;
 }
 
+.register-card :deep(.el-card__header) {
+  background: linear-gradient(to bottom, 
+    var(--color-bg-100), 
+    var(--color-bg-000)
+  );
+  padding: var(--spacing-8) var(--spacing-6);
+  border-bottom: 2px solid var(--color-accent-main);
+}
+
+.register-card :deep(.el-card__body) {
+  padding: var(--spacing-8) var(--spacing-6);
+}
+
+/* ============================================
+   卡片头部
+   ============================================ */
 .card-header {
   text-align: center;
 }
 
 .card-header h2 {
-  margin: 0 0 8px 0;
-  color: #303133;
-  font-size: 24px;
+  margin: 0 0 var(--spacing-3) 0;
+  color: var(--color-text-000);
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  background: linear-gradient(135deg, 
+    var(--color-accent-main), 
+    var(--color-accent-pro)
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .card-header p {
   margin: 0;
-  color: #909399;
-  font-size: 14px;
+  color: var(--color-text-300);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ============================================
+   表单样式增强
+   ============================================ */
+.register-card :deep(.el-form-item) {
+  margin-bottom: var(--spacing-5);
+}
+
+.register-card :deep(.el-form-item__label) {
+  font-weight: 600;
+  color: var(--color-text-100);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: var(--spacing-2);
+}
+
+.register-card :deep(.el-input__wrapper) {
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-base);
+}
+
+.register-card :deep(.el-input__wrapper:hover) {
+  box-shadow: var(--shadow-md);
+}
+
+.register-card :deep(.el-button--primary) {
+  height: 48px;
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+}
+
+.register-card :deep(.el-button--primary:hover) {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.register-card :deep(.el-button--primary:active) {
+  transform: translateY(0);
+}
+
+.register-card :deep(.el-button.is-text) {
+  color: var(--color-text-300);
+  font-size: var(--text-sm);
+  transition: color var(--transition-fast);
+}
+
+.register-card :deep(.el-button.is-text:hover) {
+  color: var(--color-accent-main);
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 480px) {
+  .register-card {
+    max-width: 100%;
+  }
+
+  .register-card :deep(.el-card__header) {
+    padding: var(--spacing-6) var(--spacing-4);
+  }
+
+  .register-card :deep(.el-card__body) {
+    padding: var(--spacing-6) var(--spacing-4);
+  }
+
+  .card-header h2 {
+    font-size: var(--text-2xl);
+  }
 }
 </style>
 

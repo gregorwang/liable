@@ -243,34 +243,56 @@ const handleLogout = async () => {
 </script>
 
 <style scoped>
+/* ============================================
+   布局结构
+   ============================================ */
 .admin-layout {
   height: 100vh;
+  height: 100dvh;
+  display: flex;
+  overflow: hidden;
 }
 
+/* ============================================
+   侧边栏样式
+   ============================================ */
 .sidebar {
-  background: #304156;
+  background: linear-gradient(180deg, 
+    var(--color-accent-pro-dark) 0%, 
+    hsl(251, 55%, 28%) 100%);
   overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  border-right: 1px solid var(--color-border);
 }
 
 .logo {
-  height: 60px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.1);
+  padding: var(--spacing-4);
 }
 
 .logo h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
 }
 
+/* ============================================
+   头部样式
+   ============================================ */
 .header {
-  background: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  background: var(--color-bg-000);
+  box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
+  border-bottom: 1px solid var(--color-border-lighter);
 }
 
 .header-content {
@@ -278,85 +300,166 @@ const handleLogout = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 0 var(--spacing-2);
 }
 
 .header-content h2 {
   margin: 0;
-  font-size: 20px;
-  color: #303133;
+  font-size: var(--text-2xl);
+  color: var(--color-text-000);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--spacing-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-200);
+  letter-spacing: var(--tracking-wide);
 }
 
+/* ============================================
+   主内容区域
+   ============================================ */
 .main-content {
-  background: #f5f7fa;
-  padding: 24px;
+  background: var(--color-bg-100);
+  padding: var(--spacing-8);
+  overflow-y: auto;
 }
 
+/* ============================================
+   统计卡片网格
+   ============================================ */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--spacing-6);
+  margin-bottom: var(--spacing-8);
 }
 
 .stat-card {
   cursor: default;
+  transition: all var(--transition-base);
+  border: 1px solid var(--color-border-lighter);
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
 }
 
 .stat-content {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--spacing-5);
+  padding: var(--spacing-2);
 }
 
 .stat-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 8px;
+  width: 72px;
+  height: 72px;
+  min-width: 72px;
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: var(--shadow-sm);
 }
 
 .stat-info {
   flex: 1;
+  min-width: 0;
 }
 
 .stat-value {
-  font-size: 28px;
-  font-weight: bold;
-  color: #303133;
-  line-height: 1;
-  margin-bottom: 8px;
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  color: var(--color-text-000);
+  line-height: var(--leading-tight);
+  margin-bottom: var(--spacing-2);
+  letter-spacing: var(--tracking-tight);
 }
 
 .stat-label {
-  font-size: 14px;
-  color: #909399;
+  font-size: var(--text-sm);
+  color: var(--color-text-400);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+  line-height: var(--leading-relaxed);
 }
 
+/* ============================================
+   进度条区域
+   ============================================ */
 .progress-section {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--spacing-8);
+  padding: var(--spacing-2) 0;
 }
 
 .progress-item {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--spacing-3);
 }
 
 .progress-label {
   display: flex;
   justify-content: space-between;
-  font-size: 14px;
-  color: #606266;
+  align-items: baseline;
+  font-size: var(--text-sm);
+  color: var(--color-text-200);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+  line-height: var(--leading-relaxed);
+}
+
+.progress-label span:first-child {
+  color: var(--color-text-100);
+  font-weight: 600;
+}
+
+.progress-label span:last-child {
+  font-size: var(--text-base);
+  color: var(--color-text-300);
+  font-weight: 600;
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-4);
+  }
+  
+  .main-content {
+    padding: var(--spacing-4);
+  }
+  
+  .stat-content {
+    gap: var(--spacing-3);
+  }
+  
+  .stat-icon {
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+  }
+  
+  .stat-value {
+    font-size: var(--text-3xl);
+  }
+}
+
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  }
 }
 </style>
 
