@@ -24,6 +24,12 @@
           <el-menu-item index="/admin/tags">
             <span>标签管理</span>
           </el-menu-item>
+          <el-menu-item index="/admin/search">
+            <span>审核记录搜索</span>
+          </el-menu-item>
+          <el-menu-item index="/admin/moderation-rules">
+            <span>审核规则库</span>
+          </el-menu-item>
         </el-menu>
       </el-aside>
       

@@ -4,6 +4,8 @@ import (
 	"comment-review-platform/internal/models"
 	"comment-review-platform/pkg/database"
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -236,4 +238,132 @@ func (r *TaskRepository) ResetTask(taskID int) error {
 	`
 	_, err := r.db.Exec(query, taskID)
 	return err
+}
+
+// ReturnTasks returns multiple tasks back to pending status for a specific reviewer
+func (r *TaskRepository) ReturnTasks(taskIDs []int, reviewerID int) (int, error) {
+	query := `
+		UPDATE review_tasks
+		SET status = 'pending', reviewer_id = NULL, claimed_at = NULL
+		WHERE id = ANY($1) AND reviewer_id = $2 AND status = 'in_progress'
+	`
+	result, err := r.db.Exec(query, pq.Array(taskIDs), reviewerID)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(rowsAffected), nil
+}
+
+// SearchTasks searches review tasks with filters and pagination
+func (r *TaskRepository) SearchTasks(req models.SearchTasksRequest) ([]models.TaskSearchResult, int, error) {
+	// Build WHERE conditions
+	var conditions []string
+	var args []interface{}
+	argPos := 1
+
+	// Only search completed tasks
+	conditions = append(conditions, "rt.status = 'completed'")
+
+	// Filter by comment_id
+	if req.CommentID != nil {
+		conditions = append(conditions, fmt.Sprintf("rt.comment_id = $%d", argPos))
+		args = append(args, *req.CommentID)
+		argPos++
+	}
+
+	// Filter by reviewer username
+	if req.ReviewerRTX != "" {
+		conditions = append(conditions, fmt.Sprintf("u.username = $%d", argPos))
+		args = append(args, req.ReviewerRTX)
+		argPos++
+	}
+
+	// Filter by tag_ids (OR condition for tags)
+	if req.TagIDs != "" {
+		// Split comma-separated tag IDs
+		tagIDs := strings.Split(req.TagIDs, ",")
+		conditions = append(conditions, fmt.Sprintf("rr.tags && $%d", argPos))
+		args = append(args, pq.Array(tagIDs))
+		argPos++
+	}
+
+	// Filter by review time range
+	if req.ReviewStartTime != nil {
+		conditions = append(conditions, fmt.Sprintf("rt.completed_at >= $%d", argPos))
+		args = append(args, *req.ReviewStartTime)
+		argPos++
+	}
+
+	if req.ReviewEndTime != nil {
+		conditions = append(conditions, fmt.Sprintf("rt.completed_at <= $%d", argPos))
+		args = append(args, *req.ReviewEndTime)
+		argPos++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Count total records
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(DISTINCT rt.id)
+		FROM review_tasks rt
+		LEFT JOIN review_results rr ON rt.id = rr.task_id
+		LEFT JOIN users u ON rt.reviewer_id = u.id
+		%s
+	`, whereClause)
+
+	var total int
+	err := r.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Query with pagination
+	offset := (req.Page - 1) * req.PageSize
+	dataQuery := fmt.Sprintf(`
+		SELECT 
+			rt.id, rt.comment_id, c.text as comment_text,
+			rt.reviewer_id, u.username,
+			rt.status, rt.claimed_at, rt.completed_at, rt.created_at,
+			rr.id as review_id, rr.is_approved, rr.tags, rr.reason, rr.created_at as reviewed_at
+		FROM review_tasks rt
+		LEFT JOIN review_results rr ON rt.id = rr.task_id
+		LEFT JOIN users u ON rt.reviewer_id = u.id
+		LEFT JOIN comment c ON rt.comment_id = c.id
+		%s
+		ORDER BY rt.completed_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argPos, argPos+1)
+
+	args = append(args, req.PageSize, offset)
+	rows, err := r.db.Query(dataQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	results := []models.TaskSearchResult{}
+	for rows.Next() {
+		var result models.TaskSearchResult
+		err := rows.Scan(
+			&result.ID, &result.CommentID, &result.CommentText,
+			&result.ReviewerID, &result.Username,
+			&result.Status, &result.ClaimedAt, &result.CompletedAt, &result.CreatedAt,
+			&result.ReviewID, &result.IsApproved, pq.Array(&result.Tags), &result.Reason, &result.ReviewedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		results = append(results, result)
+	}
+
+	return results, total, nil
 }

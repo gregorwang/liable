@@ -19,11 +19,17 @@ func NewTaskHandler() *TaskHandler {
 	}
 }
 
-// ClaimTasks allows a reviewer to claim tasks
+// ClaimTasks allows a reviewer to claim tasks with custom count
 func (h *TaskHandler) ClaimTasks(c *gin.Context) {
 	reviewerID := middleware.GetUserID(c)
 
-	tasks, err := h.taskService.ClaimTasks(reviewerID)
+	var req models.ClaimTasksRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	tasks, err := h.taskService.ClaimTasks(reviewerID, req.Count)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -90,6 +96,28 @@ func (h *TaskHandler) SubmitBatchReviews(c *gin.Context) {
 	})
 }
 
+// ReturnTasks allows a reviewer to return tasks back to the pool
+func (h *TaskHandler) ReturnTasks(c *gin.Context) {
+	reviewerID := middleware.GetUserID(c)
+
+	var req models.ReturnTasksRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+
+	returnedCount, err := h.taskService.ReturnTasks(reviewerID, req.TaskIDs)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Tasks returned successfully",
+		"count":   returnedCount,
+	})
+}
+
 // GetActiveTags retrieves all active tags
 func (h *TaskHandler) GetActiveTags(c *gin.Context) {
 	tags, err := h.taskService.GetActiveTags()
@@ -101,3 +129,19 @@ func (h *TaskHandler) GetActiveTags(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"tags": tags})
 }
 
+// SearchTasks searches review tasks with filters
+func (h *TaskHandler) SearchTasks(c *gin.Context) {
+	var req models.SearchTasksRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameters: " + err.Error()})
+		return
+	}
+
+	response, err := h.taskService.SearchTasks(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}

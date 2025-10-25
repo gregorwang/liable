@@ -3,7 +3,13 @@
     <el-container>
       <el-header class="header">
         <div class="header-content">
-          <h2>审核员工作台</h2>
+          <div class="header-left">
+            <h2>审核员工作台</h2>
+            <el-button type="primary" link @click="goToSearch" style="margin-left: 20px">
+              <el-icon><Search /></el-icon>
+              搜索审核记录
+            </el-button>
+          </div>
           <div class="user-info">
             <span>欢迎，{{ userStore.user?.username }}</span>
             <el-button @click="handleLogout" text>退出</el-button>
@@ -29,14 +35,44 @@
         </div>
         
         <div class="actions-bar">
-          <el-button
-            type="primary"
-            size="large"
-            :loading="claimLoading"
-            @click="handleClaimTasks"
-          >
-            领取新任务（20条）
-          </el-button>
+          <div class="claim-section">
+            <el-input-number
+              v-model="claimCount"
+              :min="1"
+              :max="50"
+              :step="1"
+              size="large"
+              style="width: 120px"
+            />
+            <el-button
+              type="primary"
+              size="large"
+              :loading="claimLoading"
+              @click="handleClaimTasks"
+            >
+              领取新任务
+            </el-button>
+          </div>
+          
+          <div class="return-section">
+            <el-input-number
+              v-model="returnCount"
+              :min="1"
+              :max="Math.max(1, taskStore.tasks.length)"
+              :step="1"
+              size="large"
+              style="width: 120px"
+              :disabled="taskStore.tasks.length === 0"
+            />
+            <el-button
+              type="warning"
+              size="large"
+              :disabled="taskStore.tasks.length === 0"
+              @click="handleReturnTasks"
+            >
+              退单
+            </el-button>
+          </div>
           
           <el-button
             size="large"
@@ -128,9 +164,10 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 import { useUserStore } from '../../stores/user'
 import { useTaskStore } from '../../stores/task'
-import { claimTasks, submitReview, submitBatchReviews } from '../../api/task'
+import { claimTasks, submitReview, submitBatchReviews, returnTasks } from '../../api/task'
 import type { ReviewResult } from '../../types'
 
 const router = useRouter()
@@ -138,6 +175,8 @@ const userStore = useUserStore()
 const taskStore = useTaskStore()
 
 const claimLoading = ref(false)
+const claimCount = ref(20)
+const returnCount = ref(1)
 const reviews = reactive<Record<number, ReviewResult>>({})
 
 const selectedReviews = computed(() => {
@@ -179,12 +218,20 @@ const initReviews = () => {
       }
     }
   })
+  
+  // 重置退单数量为1
+  returnCount.value = Math.min(1, taskStore.tasks.length)
 }
 
 const handleClaimTasks = async () => {
+  if (claimCount.value < 1 || claimCount.value > 50) {
+    ElMessage.warning('领取数量必须在 1-50 之间')
+    return
+  }
+  
   claimLoading.value = true
   try {
-    const res = await claimTasks()
+    const res = await claimTasks(claimCount.value)
     ElMessage.success(`成功领取 ${res.count} 条任务`)
     await taskStore.fetchMyTasks()
     initReviews()
@@ -280,6 +327,61 @@ const handleBatchSubmit = async () => {
   }
 }
 
+const handleReturnTasks = async () => {
+  if (returnCount.value < 1) {
+    ElMessage.warning('退单数量至少为 1')
+    return
+  }
+
+  if (returnCount.value > taskStore.tasks.length) {
+    ElMessage.warning(`退单数量不能超过当前任务数 (${taskStore.tasks.length})`)
+    return
+  }
+
+  if (returnCount.value > 50) {
+    ElMessage.warning('退单数量不能超过 50 条')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认退回 ${returnCount.value} 条任务？将退回最早领取的任务。`,
+      '退单确认',
+      {
+        confirmButtonText: '确认退单',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+
+    // 取最早领取的N个任务ID
+    const taskIdsToReturn = taskStore.tasks
+      .slice(0, returnCount.value)
+      .map(task => task.id)
+
+    const res = await returnTasks(taskIdsToReturn)
+    ElMessage.success(`成功退回 ${res.count} 条任务`)
+
+    // Remove returned tasks from local state
+    taskIdsToReturn.forEach((taskId) => {
+      taskStore.removeTask(taskId)
+      delete reviews[taskId]
+    })
+    
+    // 刷新任务列表
+    await taskStore.fetchMyTasks()
+    initReviews()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('Failed to return tasks:', error)
+    }
+  }
+}
+
+const goToSearch = () => {
+  router.push('/reviewer/search')
+}
+
 const handleLogout = async () => {
   try {
     await ElMessageBox.confirm('确认退出登录？', '提示', {
@@ -319,6 +421,11 @@ const handleLogout = async () => {
   margin: 0;
   font-size: 20px;
   color: #303133;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
 }
 
 .user-info {
@@ -361,6 +468,19 @@ const handleLogout = async () => {
   display: flex;
   gap: 12px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.claim-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.return-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .empty-state {

@@ -33,6 +33,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
+      path: '/reviewer/search',
+      name: 'ReviewerSearch',
+      component: () => import('../views/SearchTasks.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
       path: '/admin',
       redirect: '/admin/dashboard',
       meta: { requiresAuth: true, role: 'admin' },
@@ -59,6 +65,18 @@ const router = createRouter({
       path: '/admin/tags',
       name: 'TagManage',
       component: () => import('../views/admin/TagManage.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
+      path: '/admin/search',
+      name: 'AdminSearch',
+      component: () => import('../views/SearchTasks.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
+      path: '/admin/moderation-rules',
+      name: 'ModerationRules',
+      component: () => import('../views/admin/ModerationRules.vue'),
       meta: { requiresAuth: true, role: 'admin' },
     },
   ],

@@ -204,3 +204,62 @@ npm run dev
 
 MIT
 
+## 📦 新功能: 审核规则库系统
+
+现已集成完整的内容审核规则库系统！
+
+### ✨ 功能
+
+- **42 条审核规则**: 涵盖 10 大分类的完整规则体系
+- **灵活查询**: 支持按分类、风险等级、关键词搜索
+- **可视化界面**: 彩色风险等级标签、展开详情、实时统计
+- **完整 API**: RESTful 接口支持前后端集成
+- **详细文档**: API 文档 + 使用指南 + 实现总结
+
+### 🚀 快速开始
+
+#### 访问规则库页面
+
+1. 以管理员身份登录
+2. 在左侧菜单点击"审核规则库"
+3. 或直接访问 `/admin/moderation-rules`
+
+#### API 端点
+
+```bash
+# 获取规则列表
+GET /api/moderation-rules
+
+# 搜索规则
+GET /api/moderation-rules?search=威胁
+
+# 按分类筛选
+GET /api/moderation-rules?category=人身安全与暴力
+
+# 按风险等级筛选
+GET /api/moderation-rules?risk_level=H
+```
+
+### 📚 文档
+
+- **[MODERATION_RULES_API.md](./MODERATION_RULES_API.md)** - API 详细文档
+- **[MODERATION_RULES_USAGE.md](./MODERATION_RULES_USAGE.md)** - 使用指南
+- **[MODERATION_RULES_IMPLEMENTATION.md](./MODERATION_RULES_IMPLEMENTATION.md)** - 实现总结
+
+### 📊 规则分类
+
+| 分类 | 编号 | 规则数 | 说明 |
+|------|------|--------|------|
+| 人身安全与暴力 | A | 3 | 威胁、暴力、自伤 |
+| 仇恨与歧视 | B | 3 | 仇恨言论、歧视、符号 |
+| 骚扰与霸凌 | C | 3 | 定向骚扰、性骚扰、围攻 |
+| 未成年人与性相关 | D | 3 | 性化、私密影像、露骨内容 |
+| 非法与危险活动 | E | 4 | 犯罪、违禁品、诈骗、赌博 |
+| 虚假信息与公共危害 | F | 3 | 医疗错误、选举误导、冒充 |
+| 隐私与个人信息 | G | 2 | 人肉搜索、未授权影像 |
+| 垃圾信息与平台安全 | H | 3 | 广告、恶意链接、刷屏 |
+| 知识产权 | I | 2 | 盗版、商标冒用 |
+| 社区秩序与质量 | J | 3 | 低质、粗俗、剧透 |
+
+---
+

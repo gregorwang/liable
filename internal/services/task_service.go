@@ -30,9 +30,12 @@ func NewTaskService() *TaskService {
 	}
 }
 
-// ClaimTasks allows a reviewer to claim tasks
-func (s *TaskService) ClaimTasks(reviewerID int) ([]models.ReviewTask, error) {
-	claimSize := config.AppConfig.TaskClaimSize
+// ClaimTasks allows a reviewer to claim tasks with custom count (1-50)
+func (s *TaskService) ClaimTasks(reviewerID int, count int) ([]models.ReviewTask, error) {
+	// Validate count (1-50)
+	if count < 1 || count > 50 {
+		return nil, errors.New("claim count must be between 1 and 50")
+	}
 
 	// Check if user already has uncompleted tasks
 	existingTasks, err := s.taskRepo.GetMyTasks(reviewerID)
@@ -41,11 +44,11 @@ func (s *TaskService) ClaimTasks(reviewerID int) ([]models.ReviewTask, error) {
 	}
 
 	if len(existingTasks) > 0 {
-		return nil, errors.New("please complete your current tasks before claiming new ones")
+		return nil, fmt.Errorf("you still have %d uncompleted tasks, please complete or return them first", len(existingTasks))
 	}
 
 	// Claim tasks from database
-	tasks, err := s.taskRepo.ClaimTasks(reviewerID, claimSize)
+	tasks, err := s.taskRepo.ClaimTasks(reviewerID, count)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +171,44 @@ func (s *TaskService) GetActiveTags() ([]models.TagConfig, error) {
 	return s.tagRepo.FindActive()
 }
 
+// ReturnTasks allows a reviewer to return tasks back to the pool
+func (s *TaskService) ReturnTasks(reviewerID int, taskIDs []int) (int, error) {
+	// Validate task count (1-50)
+	if len(taskIDs) < 1 || len(taskIDs) > 50 {
+		return 0, errors.New("return count must be between 1 and 50")
+	}
+
+	// Return tasks in database
+	returnedCount, err := s.taskRepo.ReturnTasks(taskIDs, reviewerID)
+	if err != nil {
+		return 0, err
+	}
+
+	if returnedCount == 0 {
+		return 0, errors.New("no tasks were returned, please check if the tasks belong to you")
+	}
+
+	// Clean up Redis
+	userClaimedKey := fmt.Sprintf("task:claimed:%d", reviewerID)
+	pipe := s.rdb.Pipeline()
+
+	for _, taskID := range taskIDs {
+		// Remove from user's claimed set
+		pipe.SRem(s.ctx, userClaimedKey, taskID)
+
+		// Remove task lock
+		lockKey := fmt.Sprintf("task:lock:%d", taskID)
+		pipe.Del(s.ctx, lockKey)
+	}
+
+	_, err = pipe.Exec(s.ctx)
+	if err != nil {
+		log.Printf("Redis error when returning tasks: %v", err)
+	}
+
+	return returnedCount, nil
+}
+
 // ReleaseExpiredTasks releases tasks that have exceeded the timeout
 func (s *TaskService) ReleaseExpiredTasks() error {
 	timeoutMinutes := config.AppConfig.TaskTimeoutMinutes
@@ -196,4 +237,41 @@ func (s *TaskService) ReleaseExpiredTasks() error {
 	}
 
 	return nil
+}
+
+// SearchTasks searches review tasks with filters and pagination
+func (s *TaskService) SearchTasks(req models.SearchTasksRequest) (*models.SearchTasksResponse, error) {
+	// Set default pagination values
+	if req.Page < 1 {
+		req.Page = 1
+	}
+	if req.PageSize < 1 {
+		req.PageSize = 10
+	}
+	// Limit maximum page size to 100
+	if req.PageSize > 100 {
+		req.PageSize = 100
+	}
+
+	// Call repository to search tasks
+	results, total, err := s.taskRepo.SearchTasks(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate total pages
+	totalPages := total / req.PageSize
+	if total%req.PageSize > 0 {
+		totalPages++
+	}
+
+	response := &models.SearchTasksResponse{
+		Data:       results,
+		Total:      total,
+		Page:       req.Page,
+		PageSize:   req.PageSize,
+		TotalPages: totalPages,
+	}
+
+	return response, nil
 }

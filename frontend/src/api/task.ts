@@ -1,11 +1,11 @@
 import request from './request'
-import type { TasksResponse, TagsResponse, ReviewResult } from '../types'
+import type { TasksResponse, TagsResponse, ReviewResult, SearchTasksRequest, SearchTasksResponse } from '../types'
 
 /**
- * Claim tasks
+ * Claim tasks with custom count (1-50)
  */
-export function claimTasks() {
-  return request.post<any, TasksResponse>('/tasks/claim')
+export function claimTasks(count: number) {
+  return request.post<any, TasksResponse>('/tasks/claim', { count })
 }
 
 /**
@@ -32,9 +32,25 @@ export function submitBatchReviews(reviews: ReviewResult[]) {
 }
 
 /**
+ * Return tasks back to pool
+ */
+export function returnTasks(taskIds: number[]) {
+  return request.post<any, { message: string; count: number }>('/tasks/return', {
+    task_ids: taskIds,
+  })
+}
+
+/**
  * Get active tags
  */
 export function getTags() {
   return request.get<any, TagsResponse>('/tags')
+}
+
+/**
+ * Search tasks with filters
+ */
+export function searchTasks(params: SearchTasksRequest) {
+  return request.get<any, SearchTasksResponse>('/tasks/search', { params })
 }
 

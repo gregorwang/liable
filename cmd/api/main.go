@@ -10,6 +10,8 @@ import (
 	"log"
 	"time"
 
+	"database/sql"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -46,7 +48,7 @@ func main() {
 	go startTaskReleaseWorker()
 
 	// Setup Gin router
-	router := setupRouter()
+	router := setupRouter(db)
 
 	// Start server
 	log.Printf("🚀 Server starting on port %s", cfg.Port)
@@ -55,7 +57,7 @@ func main() {
 	}
 }
 
-func setupRouter() *gin.Engine {
+func setupRouter(db interface{}) *gin.Engine {
 	router := gin.Default()
 
 	// CORS middleware
@@ -82,6 +84,13 @@ func setupRouter() *gin.Engine {
 	taskHandler := handlers.NewTaskHandler()
 	adminHandler := handlers.NewAdminHandler()
 
+	// Type assert database connection
+	sqlDB, ok := db.(*sql.DB)
+	if !ok {
+		panic("failed to assert database connection to *sql.DB")
+	}
+	moderationRulesHandler := handlers.NewModerationRulesHandler(sqlDB)
+
 	// API routes
 	api := router.Group("/api")
 	{
@@ -93,6 +102,15 @@ func setupRouter() *gin.Engine {
 			auth.GET("/profile", middleware.AuthMiddleware(), authHandler.GetProfile)
 		}
 
+		// Moderation Rules routes (public - for viewing rules)
+		modRules := api.Group("/moderation-rules")
+		{
+			modRules.GET("", moderationRulesHandler.ListRules)
+			modRules.GET("/:code", moderationRulesHandler.GetRuleByCode)
+			modRules.GET("/categories", moderationRulesHandler.GetCategories)
+			modRules.GET("/risk-levels", moderationRulesHandler.GetRiskLevels)
+		}
+
 		// Task routes (requires reviewer role)
 		tasks := api.Group("/tasks")
 		tasks.Use(middleware.AuthMiddleware(), middleware.RequireReviewer())
@@ -101,7 +119,11 @@ func setupRouter() *gin.Engine {
 			tasks.GET("/my", taskHandler.GetMyTasks)
 			tasks.POST("/submit", taskHandler.SubmitReview)
 			tasks.POST("/submit-batch", taskHandler.SubmitBatchReviews)
+			tasks.POST("/return", taskHandler.ReturnTasks)
 		}
+
+		// Search route (requires login, available for both admin and reviewer)
+		api.GET("/tasks/search", middleware.AuthMiddleware(), taskHandler.SearchTasks)
 
 		// Tag routes (public for reviewers)
 		api.GET("/tags", middleware.AuthMiddleware(), taskHandler.GetActiveTags)

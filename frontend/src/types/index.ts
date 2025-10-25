@@ -101,3 +101,39 @@ export interface ApiResponse<T = any> {
   error?: string
 }
 
+// Search types
+export interface SearchTasksRequest {
+  comment_id?: number
+  reviewer_rtx?: string
+  tag_ids?: string
+  review_start_time?: string
+  review_end_time?: string
+  page?: number
+  page_size?: number
+}
+
+export interface TaskSearchResult {
+  id: number
+  comment_id: number
+  comment_text: string
+  reviewer_id: number
+  username: string
+  status: string
+  claimed_at: string | null
+  completed_at: string | null
+  created_at: string
+  review_id: number | null
+  is_approved: boolean | null
+  tags: string[]
+  reason: string | null
+  reviewed_at: string | null
+}
+
+export interface SearchTasksResponse {
+  data: TaskSearchResult[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
