@@ -87,3 +87,111 @@ export function deleteTag(tagId: number) {
   return request.delete<any, { message: string }>(`/admin/tags/${tagId}`)
 }
 
+// ==================== Task Queue Management ====================
+
+export interface TaskQueue {
+  id: number
+  queue_name: string
+  description: string
+  priority: number
+  total_tasks: number
+  completed_tasks: number
+  pending_tasks: number
+  is_active: boolean
+  created_by?: number
+  updated_by?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ListTaskQueuesResponse {
+  data: TaskQueue[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+// Create task queue
+export async function createTaskQueue(payload: {
+  queue_name: string
+  description?: string
+  priority?: number
+  total_tasks: number
+  completed_tasks?: number
+}): Promise<TaskQueue> {
+  const response = await request.post('/admin/task-queues', payload)
+  return response
+}
+
+// List task queues with pagination
+export async function listTaskQueues(params?: {
+  search?: string
+  is_active?: boolean
+  page?: number
+  page_size?: number
+}): Promise<ListTaskQueuesResponse> {
+  const response = await request.get('/admin/task-queues', { params })
+  return response
+}
+
+// Get single task queue by ID
+export async function getTaskQueue(id: number): Promise<TaskQueue> {
+  const response = await request.get(`/admin/task-queues/${id}`)
+  return response
+}
+
+// Update task queue
+export async function updateTaskQueue(
+  id: number,
+  payload: {
+    queue_name?: string
+    description?: string
+    priority?: number
+    total_tasks?: number
+    completed_tasks?: number
+    is_active?: boolean
+  }
+): Promise<TaskQueue> {
+  const response = await request.put(`/admin/task-queues/${id}`, payload)
+  return response
+}
+
+// Delete task queue
+export async function deleteTaskQueue(id: number): Promise<{ message: string }> {
+  const response = await request.delete(`/admin/task-queues/${id}`)
+  return response
+}
+
+// Get all active task queues
+export async function getAllTaskQueues(): Promise<{
+  queues: TaskQueue[]
+  count: number
+}> {
+  const response = await request.get('/admin/task-queues-all')
+  return response
+}
+
+// ==================== Public Task Queue APIs (for Reviewers) ====================
+
+/**
+ * List task queues with pagination (public, no auth required)
+ */
+export async function listTaskQueuesPublic(params?: {
+  search?: string
+  is_active?: boolean
+  page?: number
+  page_size?: number
+}): Promise<ListTaskQueuesResponse> {
+  const response = await request.get('/queues', { params })
+  return response
+}
+
+/**
+ * Get single task queue by ID (public, no auth required)
+ */
+export async function getTaskQueuePublic(id: number): Promise<TaskQueue> {
+  const response = await request.get(`/queues/${id}`)
+  return response
+}
+

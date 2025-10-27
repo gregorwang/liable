@@ -66,6 +66,12 @@ func setupRouter(db interface{}) *gin.Engine {
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
+		// SSE specific headers
+		if c.Request.URL.Path == "/api/notifications/stream" {
+			c.Writer.Header().Set("Cache-Control", "no-cache")
+			c.Writer.Header().Set("Connection", "keep-alive")
+		}
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
@@ -90,6 +96,11 @@ func setupRouter(db interface{}) *gin.Engine {
 		panic("failed to assert database connection to *sql.DB")
 	}
 	moderationRulesHandler := handlers.NewModerationRulesHandler(sqlDB)
+
+	// Initialize SSE manager and notification service
+	sseManager := services.NewSSEManager()
+	notificationService := services.NewNotificationService(sqlDB, sseManager)
+	notificationHandler := handlers.NewNotificationHandler(notificationService)
 
 	// API routes
 	api := router.Group("/api")
@@ -129,6 +140,24 @@ func setupRouter(db interface{}) *gin.Engine {
 		// Tag routes (public for reviewers)
 		api.GET("/tags", middleware.AuthMiddleware(), taskHandler.GetActiveTags)
 
+		// Public Queue Read-Only API (no auth required)
+		taskQueueHandler := handlers.NewTaskQueueHandler()
+		api.GET("/queues", taskQueueHandler.GetPublicQueues)
+		api.GET("/queues/:id", taskQueueHandler.GetPublicQueue)
+
+		// Notification SSE endpoint (public, token in query param)
+		api.GET("/notifications/stream", notificationHandler.StreamSSE)
+
+		// Notification routes (requires authentication)
+		notifications := api.Group("/notifications")
+		notifications.Use(middleware.AuthMiddleware())
+		{
+			notifications.GET("/unread", notificationHandler.GetUnread)
+			notifications.GET("/unread-count", notificationHandler.GetUnreadCount)
+			notifications.PUT("/:id/read", notificationHandler.MarkAsRead)
+			notifications.GET("/recent", notificationHandler.GetRecent)
+		}
+
 		// Admin routes (requires admin role)
 		admin := api.Group("/admin")
 		admin.Use(middleware.AuthMiddleware(), middleware.RequireAdmin())
@@ -153,6 +182,17 @@ func setupRouter(db interface{}) *gin.Engine {
 			admin.POST("/moderation-rules", moderationRulesHandler.CreateRule)
 			admin.PUT("/moderation-rules/:id", moderationRulesHandler.UpdateRule)
 			admin.DELETE("/moderation-rules/:id", moderationRulesHandler.DeleteRule)
+
+			// Task Queue management (队列配置)
+			admin.POST("/task-queues", taskQueueHandler.CreateTaskQueue)
+			admin.GET("/task-queues", taskQueueHandler.ListTaskQueues)
+			admin.GET("/task-queues/:id", taskQueueHandler.GetTaskQueue)
+			admin.PUT("/task-queues/:id", taskQueueHandler.UpdateTaskQueue)
+			admin.DELETE("/task-queues/:id", taskQueueHandler.DeleteTaskQueue)
+			admin.GET("/task-queues-all", taskQueueHandler.GetAllTaskQueues)
+
+			// Notification management (admin only)
+			admin.POST("/notifications", notificationHandler.CreateNotification)
 		}
 	}
 

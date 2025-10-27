@@ -101,6 +101,48 @@ export interface ApiResponse<T = any> {
   error?: string
 }
 
+// Notification types
+export type NotificationType = 'info' | 'warning' | 'success' | 'error' | 'system' | 'announcement' | 'task_update'
+
+export interface Notification {
+  id: number
+  title: string
+  content: string
+  type: NotificationType
+  created_by: number
+  created_at: string
+  is_global: boolean
+}
+
+export interface NotificationResponse extends Notification {
+  is_read: boolean
+  read_at?: string
+}
+
+export interface CreateNotificationRequest {
+  title: string
+  content: string
+  type: NotificationType
+  is_global: boolean
+}
+
+export interface SSEMessageData {
+  type: 'notification' | 'heartbeat' | 'connection'
+  data: NotificationResponse | { timestamp: number; clients: number } | { message: string; user_id: number }
+}
+
+export interface NotificationStats {
+  count: number
+}
+
+export interface NotificationListResponse {
+  notifications: NotificationResponse[]
+  count: number
+  total?: number
+  limit?: number
+  offset?: number
+}
+
 // Search types
 export interface SearchTasksRequest {
   comment_id?: number
@@ -156,6 +198,27 @@ export interface ModerationRule {
 
 export interface ListModerationRulesResponse {
   data: ModerationRule[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+// Queue Task types
+export interface QueueTask {
+  taskId: string
+  taskName: string
+  status: 'open' | 'closed'
+  progress: number
+  pendingCount: number
+  reviewedCount: number
+  reviewingCount: number
+  creator: string
+  createTime: string
+}
+
+export interface QueueListResponse {
+  data: QueueTask[]
   total: number
   page: number
   page_size: number

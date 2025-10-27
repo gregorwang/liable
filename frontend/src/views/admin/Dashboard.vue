@@ -164,6 +164,67 @@
               </div>
             </div>
           </el-card>
+          
+          <!-- Send Notification Card -->
+          <el-card shadow="hover" style="margin-top: 24px">
+            <template #header>
+              <div style="display: flex; justify-content: space-between; align-items: center">
+                <span style="font-weight: bold">发送全站通知</span>
+                <el-icon><Bell /></el-icon>
+              </div>
+            </template>
+            
+            <el-form 
+              :model="notificationForm" 
+              :rules="notificationRules" 
+              ref="notificationFormRef"
+              label-width="80px"
+              @submit.prevent="handleSendNotification"
+            >
+              <el-form-item label="标题" prop="title">
+                <el-input 
+                  v-model="notificationForm.title" 
+                  placeholder="请输入通知标题"
+                  maxlength="255"
+                  show-word-limit
+                />
+              </el-form-item>
+              
+              <el-form-item label="内容" prop="content">
+                <el-input 
+                  v-model="notificationForm.content" 
+                  type="textarea" 
+                  :rows="4"
+                  placeholder="请输入通知内容"
+                  maxlength="1000"
+                  show-word-limit
+                />
+              </el-form-item>
+              
+              <el-form-item label="类型" prop="type">
+                <el-select v-model="notificationForm.type" placeholder="请选择通知类型" style="width: 100%">
+                  <el-option label="信息" value="info" />
+                  <el-option label="警告" value="warning" />
+                  <el-option label="成功" value="success" />
+                  <el-option label="错误" value="error" />
+                  <el-option label="系统" value="system" />
+                  <el-option label="公告" value="announcement" />
+                  <el-option label="任务更新" value="task_update" />
+                </el-select>
+              </el-form-item>
+              
+              <el-form-item>
+                <el-button 
+                  type="primary" 
+                  @click="handleSendNotification"
+                  :loading="sendingNotification"
+                >
+                  发送通知
+                </el-button>
+                <el-button @click="resetNotificationForm">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </el-card>
         </el-main>
       </el-container>
     </el-container>
@@ -181,10 +242,12 @@ import {
   DataAnalysis,
   User,
   UserFilled,
+  Bell,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../../stores/user'
 import { getOverviewStats } from '../../api/admin'
-import type { OverviewStats } from '../../types'
+import { createNotification } from '../../api/notification'
+import type { OverviewStats, CreateNotificationRequest } from '../../types'
 import { formatNumber, formatPercent } from '../../utils/format'
 
 const router = useRouter()
@@ -192,6 +255,7 @@ const route = useRoute()
 const userStore = useUserStore()
 
 const loading = ref(false)
+const sendingNotification = ref(false)
 const stats = ref<OverviewStats>({
   total_tasks: 0,
   completed_tasks: 0,
@@ -203,6 +267,30 @@ const stats = ref<OverviewStats>({
   pending_tasks: 0,
   in_progress_tasks: 0,
 })
+
+// Notification form
+const notificationForm = ref<CreateNotificationRequest>({
+  title: '',
+  content: '',
+  type: 'info',
+  is_global: true,
+})
+
+const notificationRules = {
+  title: [
+    { required: true, message: '请输入通知标题', trigger: 'blur' },
+    { min: 1, max: 255, message: '标题长度在 1 到 255 个字符', trigger: 'blur' }
+  ],
+  content: [
+    { required: true, message: '请输入通知内容', trigger: 'blur' },
+    { min: 1, max: 1000, message: '内容长度在 1 到 1000 个字符', trigger: 'blur' }
+  ],
+  type: [
+    { required: true, message: '请选择通知类型', trigger: 'change' }
+  ]
+}
+
+const notificationFormRef = ref()
 
 const currentRoute = computed(() => route.path)
 
@@ -239,6 +327,34 @@ const handleLogout = async () => {
   } catch {
     // Cancel
   }
+}
+
+const handleSendNotification = async () => {
+  if (!notificationFormRef.value) return
+  
+  try {
+    await notificationFormRef.value.validate()
+    sendingNotification.value = true
+    
+    await createNotification(notificationForm.value)
+    ElMessage.success('通知发送成功！')
+    resetNotificationForm()
+  } catch (error) {
+    console.error('Failed to send notification:', error)
+    ElMessage.error('通知发送失败')
+  } finally {
+    sendingNotification.value = false
+  }
+}
+
+const resetNotificationForm = () => {
+  notificationForm.value = {
+    title: '',
+    content: '',
+    type: 'info',
+    is_global: true,
+  }
+  notificationFormRef.value?.resetFields()
 }
 </script>
 

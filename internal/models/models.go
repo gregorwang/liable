@@ -216,3 +216,110 @@ type ListModerationRulesResponse struct {
 	PageSize   int              `json:"page_size"`
 	TotalPages int              `json:"total_pages"`
 }
+
+// TaskQueue represents a manual task queue configuration
+type TaskQueue struct {
+	ID             int       `json:"id"`
+	QueueName      string    `json:"queue_name"`      // Queue identifier
+	Description    string    `json:"description"`     // Queue description
+	Priority       int       `json:"priority"`        // Priority level (higher = more important)
+	TotalTasks     int       `json:"total_tasks"`     // Total tasks in queue
+	CompletedTasks int       `json:"completed_tasks"` // Completed tasks count
+	PendingTasks   int       `json:"pending_tasks"`   // Calculated: TotalTasks - CompletedTasks
+	IsActive       bool      `json:"is_active"`       // Whether queue is active
+	CreatedBy      *int      `json:"created_by,omitempty"`
+	UpdatedBy      *int      `json:"updated_by,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// CreateTaskQueueRequest for creating a new task queue
+type CreateTaskQueueRequest struct {
+	QueueName      string `json:"queue_name" binding:"required,max=100"`
+	Description    string `json:"description"`
+	Priority       int    `json:"priority" binding:"min=0,max=1000"`
+	TotalTasks     int    `json:"total_tasks" binding:"required,min=0"`
+	CompletedTasks int    `json:"completed_tasks" binding:"min=0"`
+}
+
+// UpdateTaskQueueRequest for updating a task queue
+type UpdateTaskQueueRequest struct {
+	QueueName      *string `json:"queue_name,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	Priority       *int    `json:"priority,omitempty"`
+	TotalTasks     *int    `json:"total_tasks,omitempty"`
+	CompletedTasks *int    `json:"completed_tasks,omitempty"`
+	IsActive       *bool   `json:"is_active,omitempty"`
+}
+
+// ListTaskQueuesResponse for paginated queue results
+type ListTaskQueuesResponse struct {
+	Data       []TaskQueue `json:"data"`
+	Total      int         `json:"total"`
+	Page       int         `json:"page"`
+	PageSize   int         `json:"page_size"`
+	TotalPages int         `json:"total_pages"`
+}
+
+// ListTaskQueuesRequest for querying task queues
+type ListTaskQueuesRequest struct {
+	Search   string `form:"search"`    // Search by queue name
+	IsActive *bool  `form:"is_active"` // Filter by active status
+	Page     int    `form:"page"`      // Page number, default 1
+	PageSize int    `form:"page_size"` // Page size, default 20
+}
+
+// Notification represents a system notification
+type Notification struct {
+	ID        int       `json:"id"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Type      string    `json:"type"` // 'info', 'warning', 'success', 'error', 'system', 'announcement', 'task_update'
+	CreatedBy int       `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+	IsGlobal  bool      `json:"is_global"`
+}
+
+// UserNotification represents user's read status for notifications
+type UserNotification struct {
+	ID             int           `json:"id"`
+	UserID         int           `json:"user_id"`
+	NotificationID int           `json:"notification_id"`
+	IsRead         bool          `json:"is_read"`
+	ReadAt         *time.Time    `json:"read_at"`
+	CreatedAt      time.Time     `json:"created_at"`
+	Notification   *Notification `json:"notification,omitempty"` // Optional joined data
+}
+
+// CreateNotificationRequest for creating new notifications
+type CreateNotificationRequest struct {
+	Title    string `json:"title" binding:"required,max=255"`
+	Content  string `json:"content" binding:"required"`
+	Type     string `json:"type" binding:"required,oneof=info warning success error system announcement task_update"`
+	IsGlobal bool   `json:"is_global"`
+}
+
+// NotificationResponse for API responses
+type NotificationResponse struct {
+	ID        int        `json:"id"`
+	Title     string     `json:"title"`
+	Content   string     `json:"content"`
+	Type      string     `json:"type"`
+	CreatedBy int        `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	IsGlobal  bool       `json:"is_global"`
+	IsRead    bool       `json:"is_read"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
+}
+
+// SSEMessage represents a message sent via Server-Sent Events
+type SSEMessage struct {
+	Type string      `json:"type"` // 'notification', 'heartbeat'
+	Data interface{} `json:"data"`
+}
+
+// BroadcastMessage for internal SSE broadcasting
+type BroadcastMessage struct {
+	UserID  int        `json:"user_id,omitempty"` // If empty, broadcast to all
+	Message SSEMessage `json:"message"`
+}

@@ -4,7 +4,7 @@
       <el-header class="header">
         <div class="header-content">
           <div class="header-left">
-            <h2>审核员工作台</h2>
+            <h2>{{ currentTaskName ? `${currentTaskName} - 标注工作台` : '审核员工作台' }}</h2>
             <el-button type="primary" link @click="goToSearch" style="margin-left: 20px">
               <el-icon><Search /></el-icon>
               搜索审核记录
@@ -178,6 +178,7 @@ const claimLoading = ref(false)
 const claimCount = ref(20)
 const returnCount = ref(1)
 const reviews = reactive<Record<number, ReviewResult>>({})
+const currentTaskName = ref<string>('')
 
 const selectedReviews = computed(() => {
   return Object.entries(reviews)
@@ -189,6 +190,18 @@ const selectedReviews = computed(() => {
 })
 
 onMounted(async () => {
+  // 从sessionStorage获取当前任务信息
+  const taskStr = sessionStorage.getItem('currentTask')
+  if (taskStr) {
+    try {
+      const task = JSON.parse(taskStr)
+      currentTaskName.value = task.taskName
+      sessionStorage.removeItem('currentTask')
+    } catch (e) {
+      console.error('Failed to parse current task:', e)
+    }
+  }
+  
   try {
     await taskStore.fetchTags()
     await taskStore.fetchMyTasks()

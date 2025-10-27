@@ -172,3 +172,199 @@ func (h *AdminHandler) DeleteTag(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Tag deleted successfully"})
 }
 
+// ==================== Task Queue Management ====================
+
+type TaskQueueHandler struct {
+	queueService *services.TaskQueueService
+}
+
+func NewTaskQueueHandler() *TaskQueueHandler {
+	return &TaskQueueHandler{
+		queueService: services.NewTaskQueueService(),
+	}
+}
+
+// CreateTaskQueue creates a new task queue
+func (h *TaskQueueHandler) CreateTaskQueue(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	var req models.CreateTaskQueueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	queue, err := h.queueService.CreateTaskQueue(req, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, queue)
+}
+
+// ListTaskQueues retrieves task queues with pagination
+func (h *TaskQueueHandler) ListTaskQueues(c *gin.Context) {
+	var req models.ListTaskQueuesRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	response, err := h.queueService.ListTaskQueues(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetTaskQueue retrieves a single task queue by ID
+func (h *TaskQueueHandler) GetTaskQueue(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue ID"})
+		return
+	}
+
+	queue, err := h.queueService.GetTaskQueueByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task queue not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, queue)
+}
+
+// UpdateTaskQueue updates a task queue
+func (h *TaskQueueHandler) UpdateTaskQueue(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue ID"})
+		return
+	}
+
+	var req models.UpdateTaskQueueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	queue, err := h.queueService.UpdateTaskQueue(id, req, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, queue)
+}
+
+// DeleteTaskQueue deletes a task queue
+func (h *TaskQueueHandler) DeleteTaskQueue(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue ID"})
+		return
+	}
+
+	if err := h.queueService.DeleteTaskQueue(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Task queue deleted successfully"})
+}
+
+// GetAllTaskQueues retrieves all active task queues
+func (h *TaskQueueHandler) GetAllTaskQueues(c *gin.Context) {
+	queues, err := h.queueService.GetAllTaskQueues()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"queues": queues, "count": len(queues)})
+}
+
+// GetPublicQueues retrieves all task queues (public, no auth required)
+func (h *TaskQueueHandler) GetPublicQueues(c *gin.Context) {
+	page := c.DefaultQuery("page", "1")
+	pageSize := c.DefaultQuery("page_size", "10")
+	search := c.DefaultQuery("search", "")
+
+	pageNum := 1
+	if p, err := strconv.Atoi(page); err == nil {
+		pageNum = p
+	}
+
+	size := 10
+	if ps, err := strconv.Atoi(pageSize); err == nil {
+		size = ps
+	}
+
+	var req models.ListTaskQueuesRequest
+	req.Page = pageNum
+	req.PageSize = size
+	req.Search = search
+
+	response, err := h.queueService.ListTaskQueues(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetPublicQueue retrieves a single task queue by ID (public, no auth required)
+func (h *TaskQueueHandler) GetPublicQueue(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue ID"})
+		return
+	}
+
+	queue, err := h.queueService.GetTaskQueueByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task queue not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, queue)
+}
+
+// ListTaskQueuesForReviewers retrieves task queues for reviewer users (public read-only)
+func (h *TaskQueueHandler) ListTaskQueuesForReviewers(c *gin.Context) {
+	var req models.ListTaskQueuesRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	response, err := h.queueService.ListTaskQueues(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetTaskQueueForReviewers retrieves a single task queue by ID for reviewer users (public read-only)
+func (h *TaskQueueHandler) GetTaskQueueForReviewers(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid queue ID"})
+		return
+	}
+
+	queue, err := h.queueService.GetTaskQueueByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task queue not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, queue)
+}

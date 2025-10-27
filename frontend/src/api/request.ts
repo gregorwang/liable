@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
 import { getToken, removeToken } from '../utils/auth'
 
@@ -25,7 +25,7 @@ request.interceptors.request.use(
 
 // Response interceptor
 request.interceptors.response.use(
-  (response) => {
+  (response: AxiosResponse) => {
     return response.data
   },
   (error) => {

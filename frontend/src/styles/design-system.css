@@ -72,12 +72,15 @@
      2. 字体系统 - Typography
      ============================================ */
   
-  /* 无衬线字体（UI界面） */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', 
-               Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  /* UI界面字体（思源无衬线字体） */
+  --font-ui: "Source Sans 3", "Source Han Sans SC", sans-serif;
   
-  /* 衬线字体（内容阅读） */
-  --font-serif: Georgia, 'Times New Roman', Times, serif, 'Apple Color Emoji';
+  /* 内容阅读字体（思源衬线字体） */
+  --font-serif: "Source Serif 4", "Source Han Serif SC", serif;
+  
+  /* 无衬线字体（UI界面备选） */
+  --font-sans: "Source Sans 3", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', 
+               Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   
   /* 等宽字体（代码） */
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -189,7 +192,12 @@ body {
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   color: var(--color-text-100);
-  background-color: var(--color-bg-100);
+  /* 应用温暖的米黄梯度背景，营造纸质感 */
+  background: linear-gradient(135deg, 
+    hsl(48, 30%, 96%) 0%,       /* 浅米黄 */
+    hsl(0, 0%, 99%) 50%,        /* 极浅 */
+    hsl(0, 0%, 100%) 100%);     /* 纯白 */
+  background-attachment: fixed;
   letter-spacing: var(--tracking-normal);
   -webkit-tap-highlight-color: transparent; /* 禁用移动端点击高亮 */
 }

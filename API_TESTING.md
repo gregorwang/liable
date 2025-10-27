@@ -416,3 +416,100 @@ curl http://localhost:8080/api/admin/stats/overview \
 
 Happy Testing! 🚀
 
+## 获取帮助
+
+- 📖 完整 API 文档: 查看 `TASK_QUEUE_API.md`
+- 🐛 报告 Bug: 提交 Issue
+- 💡 功能建议: 发起讨论
+- 📧 技术支持: 联系开发团队
+
+---
+
+## 普通用户（Reviewer）队列查看权限测试
+
+### 新增端点（用于普通用户）
+
+```bash
+# 1️⃣ 普通用户获取队列列表（分页）- 无需认证
+curl -X GET "http://localhost:8080/api/queues?page=1&page_size=20" \
+  -H "Content-Type: application/json"
+
+# 2️⃣ 普通用户获取特定队列详情 - 无需认证
+curl -X GET "http://localhost:8080/api/queues/1" \
+  -H "Content-Type: application/json"
+```
+
+### 权限说明
+
+| 操作 | 任何人 | 管理员 | 端点 | 需要认证 |
+|------|--------|------|------|---------|
+| 查看队列列表 | ✅ | ✅ | `/api/queues` | ❌ 否 |
+| 查看队列详情 | ✅ | ✅ | `/api/queues/:id` | ❌ 否 |
+| 创建队列 | ❌ | ✅ | `/api/admin/task-queues` | ✅ 是 |
+| 修改队列 | ❌ | ✅ | `/api/admin/task-queues/:id` | ✅ 是 |
+| 删除队列 | ❌ | ✅ | `/api/admin/task-queues/:id` | ✅ 是 |
+
+### 最简单的测试方法
+
+**直接在浏览器中打开**（无需认证）：
+```
+http://localhost:8080/api/queues?page=1&page_size=20
+```
+
+或使用curl（最简单）：
+```bash
+curl http://localhost:8080/api/queues
+```
+
+**预期响应**：
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "queue_name": "色情内容审核",
+      "description": "审核色情和低俗内容",
+      "priority": 80,
+      "total_tasks": 500,
+      "completed_tasks": 250,
+      "pending_tasks": 250,
+      "is_active": true,
+      "created_at": "2025-10-26T10:00:00Z",
+      "updated_at": "2025-10-26T14:00:00Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 1
+}
+```
+
+### 高级测试步骤
+
+如果你想测试管理员权限（创建/修改/删除）：
+
+1. **以管理员身份登录**
+```bash
+curl -X POST "http://localhost:8080/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+```
+
+2. **复制返回的 token**
+
+3. **用 token 访问管理员端点**
+```bash
+curl -X POST "http://localhost:8080/api/admin/task-queues" \
+  -H "Authorization: Bearer <admin_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queue_name": "垃圾信息审核",
+    "priority": 50,
+    "total_tasks": 1000
+  }'
+```
+

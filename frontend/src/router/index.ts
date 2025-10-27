@@ -7,7 +7,13 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/login',
+      redirect: '/test',
+    },
+    {
+      path: '/test',
+      name: 'TestMainLayout',
+      component: () => import('../views/TestMainLayout.vue'),
+      meta: { requiresAuth: false },
     },
     {
       path: '/login',
@@ -21,9 +27,59 @@ const router = createRouter({
       component: () => import('../views/Register.vue'),
       meta: { requiresAuth: false },
     },
+    // 主布局路由
+    {
+      path: '/main',
+      name: 'MainLayout',
+      component: () => import('../components/MainLayout.vue'),
+      meta: { requiresAuth: true },
+      children: [
+        {
+          path: '',
+          name: 'MainLayoutDefault',
+          redirect: 'queue-list',
+        },
+        {
+          path: 'queue-list',
+          name: 'QueueList',
+          component: () => import('../components/QueueList.vue'),
+        },
+        {
+          path: 'data-management',
+          name: 'DataManagement',
+          component: () => import('../views/SearchTasks.vue'),
+        },
+        {
+          path: 'permission-list',
+          name: 'PermissionList',
+          component: () => import('../views/admin/UserManage.vue'),
+        },
+        {
+          path: 'efficiency-stats',
+          name: 'EfficiencyStats',
+          component: () => import('../views/admin/Statistics.vue'),
+        },
+        {
+          path: 'user-management',
+          name: 'UserManagement',
+          component: () => import('../views/admin/UserManage.vue'),
+        },
+        {
+          path: 'history-announcements',
+          name: 'HistoryAnnouncements',
+          component: () => import('../views/admin/Dashboard.vue'),
+        },
+        {
+          path: 'rule-documentation',
+          name: 'RuleDocumentation',
+          component: () => import('../views/admin/ModerationRules.vue'),
+        },
+      ],
+    },
+    // 保留原有的独立路由用于兼容
     {
       path: '/reviewer',
-      redirect: '/reviewer/dashboard',
+      redirect: '/main/queue-list',
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
@@ -40,7 +96,7 @@ const router = createRouter({
     },
     {
       path: '/admin',
-      redirect: '/admin/dashboard',
+      redirect: '/main/queue-list',
       meta: { requiresAuth: true, role: 'admin' },
     },
     {
@@ -79,6 +135,12 @@ const router = createRouter({
       component: () => import('../views/admin/ModerationRules.vue'),
       meta: { requiresAuth: true, role: 'admin' },
     },
+    {
+      path: '/admin/queue-manage',
+      name: 'QueueManage',
+      component: () => import('../views/admin/QueueManage.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
   ],
 })
 
@@ -109,15 +171,9 @@ router.beforeEach((to, from, next) => {
     }
   }
 
-  // Redirect to dashboard if already logged in
+  // Redirect to main layout if already logged in
   if ((to.path === '/login' || to.path === '/register') && token && user) {
-    if (user.role === 'admin') {
-      next('/admin/dashboard')
-    } else if (user.role === 'reviewer') {
-      next('/reviewer/dashboard')
-    } else {
-      next()
-    }
+    next('/main/queue-list')
     return
   }
 
