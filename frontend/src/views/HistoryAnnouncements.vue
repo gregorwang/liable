@@ -7,7 +7,7 @@
     
     <div v-loading="notificationStore.isLoading" class="announcements-container">
       <el-card
-        v-for="notification in notificationStore.notifications"
+        v-for="notification in (notificationStore.notifications || [])"
         :key="notification.id"
         shadow="hover"
         class="announcement-card"
@@ -46,12 +46,12 @@
       </el-card>
       
       <el-empty 
-        v-if="!notificationStore.isLoading && notificationStore.notifications.length === 0" 
+        v-if="!notificationStore.isLoading && (!notificationStore.notifications || notificationStore.notifications.length === 0)" 
         description="暂无历史公告" 
         :image-size="120"
       />
       
-      <div v-if="notificationStore.notifications.length > 0" class="load-more-container">
+      <div v-if="notificationStore.notifications && notificationStore.notifications.length > 0" class="load-more-container">
         <el-button 
           :loading="loadingMore"
           @click="loadMore"
@@ -83,15 +83,18 @@ const currentPage = ref(0)
 const pageSize = 10
 
 const hasMore = computed(() => {
-  return notificationStore.notifications.length >= (currentPage.value + 1) * pageSize
+  return (notificationStore.notifications || []).length >= (currentPage.value + 1) * pageSize
 })
 
 onMounted(async () => {
   try {
-    await notificationStore.fetchRecent(pageSize, 0)
+    console.log('📢 HistoryAnnouncements mounted, fetching notifications...')
+    const result = await notificationStore.fetchRecent(pageSize, 0)
+    console.log('✅ Fetch result:', result)
+    console.log('📋 Notifications in store:', notificationStore.notifications)
     currentPage.value = 0
   } catch (error) {
-    console.error('Failed to load notifications:', error)
+    console.error('❌ Failed to load notifications:', error)
   }
 })
 

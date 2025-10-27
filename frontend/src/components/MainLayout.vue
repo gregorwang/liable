@@ -23,7 +23,49 @@
           </div>
           
           <el-badge :value="notificationStore.unreadCount" :hidden="notificationStore.unreadCount === 0" class="notification-badge">
-            <NotificationBell />
+            <el-dropdown 
+              trigger="click" 
+              placement="bottom-end"
+              @command="handleNotificationCommand"
+              class="notification-dropdown"
+            >
+              <el-badge :value="notificationStore.unreadCount" :hidden="notificationStore.unreadCount === 0" class="notification-badge">
+                <el-button type="text" class="notification-btn">
+                  <el-icon size="18">
+                    <Bell />
+                  </el-icon>
+                </el-button>
+              </el-badge>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <div class="notification-header">
+                    <span>通知</span>
+                    <el-button type="text" size="small" @click="markAllAsRead">全部已读</el-button>
+                  </div>
+                  <el-divider />
+                  <div class="notification-list">
+                    <div v-if="notificationStore.notifications.length === 0" class="no-notifications">
+                      暂无通知
+                    </div>
+                    <div 
+                      v-for="notification in notificationStore.notifications.slice(0, 5)" 
+                      :key="notification.id"
+                      class="notification-item"
+                      :class="{ 'unread': !notification.is_read }"
+                      @click="markAsRead(notification.id)"
+                    >
+                      <div class="notification-content">
+                        <div class="notification-title">{{ notification.title }}</div>
+                        <div class="notification-message">{{ notification.content }}</div>
+                        <div class="notification-time">{{ formatTime(notification.created_at) }}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <el-divider />
+                  <el-dropdown-item command="view-all">查看全部通知</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </el-badge>
           
           <el-dropdown @command="handleUserCommand" class="user-dropdown">
@@ -67,21 +109,43 @@
             <template #title>数据管理</template>
           </el-menu-item>
           
-          <el-menu-item index="permission-list">
-            <el-icon><User /></el-icon>
-            <template #title>权限列表</template>
-          </el-menu-item>
+          <!-- 仅管理员可见的菜单项 -->
+          <template v-if="userStore.isAdmin()">
+            <!-- 管理后台分组 -->
+            <el-sub-menu index="admin-management">
+              <template #title>
+                <el-icon><Setting /></el-icon>
+                <span>管理后台</span>
+              </template>
+              
+              <el-menu-item index="admin-dashboard">
+                <el-icon><DataBoard /></el-icon>
+                <template #title>总览</template>
+              </el-menu-item>
+              
+              <el-menu-item index="admin-user-management">
+                <el-icon><UserFilled /></el-icon>
+                <template #title>用户管理</template>
+              </el-menu-item>
+              
+              <el-menu-item index="admin-statistics">
+                <el-icon><TrendCharts /></el-icon>
+                <template #title>统计分析</template>
+              </el-menu-item>
+              
+              <el-menu-item index="admin-tag-management">
+                <el-icon><PriceTag /></el-icon>
+                <template #title>标签管理</template>
+              </el-menu-item>
+              
+              <el-menu-item index="admin-queue-management">
+                <el-icon><Operation /></el-icon>
+                <template #title>队列配置</template>
+              </el-menu-item>
+            </el-sub-menu>
+          </template>
           
-          <el-menu-item index="efficiency-stats">
-            <el-icon><TrendCharts /></el-icon>
-            <template #title>人效统计</template>
-          </el-menu-item>
-          
-          <el-menu-item index="user-management">
-            <el-icon><UserFilled /></el-icon>
-            <template #title>用户管理</template>
-          </el-menu-item>
-          
+          <!-- 所有用户都可以访问历史公告和规则文档 -->
           <el-menu-item index="history-announcements">
             <el-icon><Bell /></el-icon>
             <template #title>历史公告</template>
@@ -90,11 +154,6 @@
           <el-menu-item index="rule-documentation">
             <el-icon><Document /></el-icon>
             <template #title>规则文档</template>
-          </el-menu-item>
-          
-          <el-menu-item index="queue-manage">
-            <el-icon><Setting /></el-icon>
-            <template #title>队列配置</template>
           </el-menu-item>
         </el-menu>
       </el-aside>
@@ -117,15 +176,16 @@ import {
   ArrowDown,
   List,
   DataBoard,
-  User,
   TrendCharts,
   UserFilled,
   Document,
-  Setting
+  Setting,
+  Bell,
+  PriceTag,
+  Operation
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { useNotificationStore } from '../stores/notification'
-import NotificationBell from './NotificationBell.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -139,12 +199,15 @@ const notificationStore = useNotificationStore()
 const asyncComponents: Record<string, any> = {
   'queue-list': defineAsyncComponent(() => import('./QueueList.vue')),
   'data-management': defineAsyncComponent(() => import('../views/SearchTasks.vue')),
-  'permission-list': defineAsyncComponent(() => import('../views/admin/UserManage.vue')),
-  'efficiency-stats': defineAsyncComponent(() => import('../views/admin/Statistics.vue')),
-  'user-management': defineAsyncComponent(() => import('../views/admin/UserManage.vue')),
   'history-announcements': defineAsyncComponent(() => import('../views/HistoryAnnouncements.vue')),
   'rule-documentation': defineAsyncComponent(() => import('../views/admin/ModerationRules.vue')),
-  'queue-manage': defineAsyncComponent(() => import('../views/admin/QueueManage.vue')),
+  
+  // 管理员专用组件
+  'admin-dashboard': defineAsyncComponent(() => import('../views/admin/Dashboard.vue')),
+  'admin-user-management': defineAsyncComponent(() => import('../views/admin/UserManage.vue')),
+  'admin-statistics': defineAsyncComponent(() => import('../views/admin/Statistics.vue')),
+  'admin-tag-management': defineAsyncComponent(() => import('../views/admin/TagManage.vue')),
+  'admin-queue-management': defineAsyncComponent(() => import('../views/admin/QueueManage.vue')),
 }
 
 // 侧边栏状态
@@ -195,6 +258,43 @@ const handleUserCommand = async (command: string) => {
       }
       break
   }
+}
+
+const handleNotificationCommand = (command: string) => {
+  switch (command) {
+    case 'view-all':
+      // 可以跳转到通知页面或显示更多通知
+      ElMessage.info('查看全部通知功能开发中...')
+      break
+  }
+}
+
+const markAsRead = (notificationId: number) => {
+  notificationStore.markNotificationAsRead(notificationId)
+}
+
+const markAllAsRead = () => {
+  // 标记所有未读通知为已读
+  notificationStore.notifications.forEach(notification => {
+    if (!notification.is_read) {
+      notificationStore.markNotificationAsRead(notification.id)
+    }
+  })
+}
+
+const formatTime = (dateString: string) => {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes}分钟前`
+  if (hours < 24) return `${hours}小时前`
+  if (days < 7) return `${days}天前`
+  return date.toLocaleDateString('zh-CN')
 }
 
 onMounted(() => {

@@ -67,7 +67,7 @@ const router = createRouter({
         {
           path: 'history-announcements',
           name: 'HistoryAnnouncements',
-          component: () => import('../views/admin/Dashboard.vue'),
+          component: () => import('../views/HistoryAnnouncements.vue'),
         },
         {
           path: 'rule-documentation',
@@ -171,8 +171,9 @@ router.beforeEach((to, from, next) => {
     }
   }
 
-  // Redirect to main layout if already logged in
+  // Redirect to main layout if already logged in (regardless of role)
   if ((to.path === '/login' || to.path === '/register') && token && user) {
+    // All users go to the same main layout
     next('/main/queue-list')
     return
   }

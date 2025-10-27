@@ -1,5 +1,5 @@
 <template>
-  <div class="queue-manage-container">
+  <div class="admin-queue-management-content">
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
@@ -223,9 +223,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import * as adminAPI from '@/api/admin'
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import * as adminAPI from '../../api/admin'
 
 interface FormData {
   queue_name: string
@@ -240,7 +240,7 @@ interface FormData {
 const loading = ref(false)
 const queues = ref<adminAPI.TaskQueue[]>([])
 const searchText = ref('')
-const filterActive = ref<boolean | null>(null)
+const filterActive = ref<boolean | undefined>(undefined)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
@@ -268,7 +268,7 @@ const formRules = {
   completed_tasks: [
     {
       type: 'number',
-      validator: (rule: any, value: number, callback: any) => {
+      validator: (_rule: any, value: number, callback: any) => {
         if (value > formData.value.total_tasks) {
           callback(new Error('已审核数不能大于总任务数'))
         } else {
@@ -280,13 +280,7 @@ const formRules = {
   ],
 }
 
-// Computed
-const filteredQueues = computed(() => {
-  if (!searchText.value) return queues.value
-  return queues.value.filter((q) =>
-    q.queue_name.toLowerCase().includes(searchText.value.toLowerCase())
-  )
-})
+// Computed - removed unused computed property
 
 // Methods
 const loadQueues = async () => {
@@ -422,8 +416,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.queue-manage-container {
-  padding: 20px;
+/* ============================================
+   管理员队列管理页面样式
+   ============================================ */
+.admin-queue-management-content {
+  padding: var(--spacing-8);
+  background-color: var(--color-bg-100);
+  min-height: 100vh;
 }
 
 .box-card {

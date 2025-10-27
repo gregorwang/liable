@@ -35,10 +35,12 @@ export const useNotificationStore = defineStore('notification', () => {
     try {
       isLoading.value = true
       const response = await getUnreadNotifications(limit)
-      notifications.value = response.notifications
+      notifications.value = response.notifications || []
     } catch (err) {
       console.error('Failed to fetch unread notifications:', err)
       ElMessage.error('获取未读通知失败')
+      // Ensure notifications is always initialized
+      notifications.value = []
     } finally {
       isLoading.value = false
     }
@@ -97,18 +99,27 @@ export const useNotificationStore = defineStore('notification', () => {
       isLoading.value = true
       const response = await getRecentNotifications(limit, offset)
       
+      // Ensure we have a valid array
+      const notificationArray = Array.isArray(response.notifications) 
+        ? response.notifications 
+        : []
+      
       if (offset === 0) {
         // Replace notifications for first page
-        notifications.value = response.notifications
+        notifications.value = notificationArray
       } else {
         // Append notifications for pagination
-        notifications.value.push(...response.notifications)
+        notifications.value.push(...notificationArray)
       }
       
       return response
     } catch (err) {
       console.error('Failed to fetch recent notifications:', err)
       ElMessage.error('获取历史通知失败')
+      // Ensure notifications is always initialized
+      if (offset === 0) {
+        notifications.value = []
+      }
       throw err
     } finally {
       isLoading.value = false

@@ -96,12 +96,8 @@ const handleLogin = async () => {
       await userStore.login(form.username, form.password)
       ElMessage.success('登录成功')
       
-      // Redirect based on role
-      if (userStore.isAdmin()) {
-        router.push('/admin/dashboard')
-      } else if (userStore.isReviewer()) {
-        router.push('/reviewer/dashboard')
-      }
+      // Redirect to main layout for all users
+      router.push('/main/queue-list')
     } catch (error) {
       console.error('Login failed:', error)
     } finally {
