@@ -1,60 +1,77 @@
 <template>
   <div class="login-container">
-    <el-card class="login-card">
-      <template #header>
-        <div class="card-header">
-          <h2>评论审核平台</h2>
-          <p>登录</p>
+    <!-- 左侧引言区域 -->
+    <div class="left-section">
+      <div class="quote-content">
+        <div class="quote-text">
+          鉴于对良知的无视与侮蔑亦会发展为玷污社区的暴行，我们以技术守护审慎的判断，为一个人人享有言论自由并免予恐惧的世界而努力。
         </div>
-      </template>
-      
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        size="large"
-      >
-        <el-form-item label="用户名" prop="username">
-          <el-input
-            v-model="form.username"
-            placeholder="请输入用户名"
-            @keyup.enter="handleLogin"
-          />
-        </el-form-item>
+        <div class="quote-decoration">
+          <div class="decoration-line"></div>
+          <div class="decoration-dot"></div>
+          <div class="decoration-line"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 右侧登录区域 -->
+    <div class="right-section">
+      <el-card class="login-card">
+        <template #header>
+          <div class="card-header">
+            <h2>评论审核平台</h2>
+            <p>登录</p>
+          </div>
+        </template>
         
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            placeholder="请输入密码"
-            show-password
-            @keyup.enter="handleLogin"
-          />
-        </el-form-item>
-        
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="loading"
-            style="width: 100%"
-            @click="handleLogin"
-          >
-            登录
-          </el-button>
-        </el-form-item>
-        
-        <el-form-item>
-          <el-button
-            text
-            style="width: 100%"
-            @click="goToRegister"
-          >
-            还没有账号？立即注册
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+        <el-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-position="top"
+          size="large"
+        >
+          <el-form-item label="用户名" prop="username">
+            <el-input
+              v-model="form.username"
+              placeholder="请输入用户名"
+              @keyup.enter="handleLogin"
+            />
+          </el-form-item>
+          
+          <el-form-item label="密码" prop="password">
+            <el-input
+              v-model="form.password"
+              type="password"
+              placeholder="请输入密码"
+              show-password
+              @keyup.enter="handleLogin"
+            />
+          </el-form-item>
+          
+          <el-form-item>
+            <el-button
+              type="primary"
+              :loading="loading"
+              style="width: 100%"
+              @click="handleLogin"
+            >
+              登录
+            </el-button>
+          </el-form-item>
+          
+          <el-form-item>
+            <el-button
+              text
+              style="width: 100%"
+              @click="goToRegister"
+            >
+              还没有账号？立即注册
+            </el-button>
+          </el-form-item>
+        </el-form>
+      </el-card>
+    </div>
   </div>
 </template>
 
@@ -113,26 +130,36 @@ const goToRegister = () => {
 
 <style scoped>
 /* ============================================
-   登录页面样式
+   登录页面样式 - 紧密布局
    ============================================ */
 .login-container {
   display: flex;
-  justify-content: center;
-  align-items: center;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: var(--spacing-4);
-  background: linear-gradient(135deg, 
-    var(--color-accent-pro) 0%, 
-    var(--color-accent-pro-dark) 50%,
-    var(--color-accent-main) 100%
-  );
+  background: var(--color-bg-100);
   position: relative;
   overflow: hidden;
+  padding: var(--spacing-8);
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============================================
+   左侧引言区域
+   ============================================ */
+.left-section {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-100);
+  position: relative;
+  padding: 0;
+  margin-right: var(--spacing-3);
 }
 
 /* 背景装饰 */
-.login-container::before {
+.left-section::before {
   content: '';
   position: absolute;
   top: -50%;
@@ -140,7 +167,7 @@ const goToRegister = () => {
   width: 200%;
   height: 200%;
   background: radial-gradient(circle, 
-    rgba(255, 255, 255, 0.1) 1px, 
+    rgba(0, 0, 0, 0.05) 1px, 
     transparent 1px
   );
   background-size: 50px 50px;
@@ -157,26 +184,70 @@ const goToRegister = () => {
   }
 }
 
-/* ============================================
-   登录卡片
-   ============================================ */
-.login-card {
-  width: 100%;
-  max-width: 460px;
-  box-shadow: var(--shadow-2xl);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+.quote-content {
+  max-width: 400px;
+  text-align: center;
   position: relative;
   z-index: 1;
 }
 
+.quote-text {
+  font-family: "Zhi Mang Xing", cursive;
+  font-size: 48px;
+  font-weight: 400;
+  line-height: var(--leading-loose);
+  color: var(--color-text-000);
+  margin-bottom: var(--spacing-6);
+  letter-spacing: var(--tracking-wide);
+}
+
+.quote-decoration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-4);
+}
+
+.decoration-line {
+  width: 60px;
+  height: 2px;
+  background: var(--color-text-300);
+  border-radius: 1px;
+}
+
+.decoration-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--color-text-200);
+  border-radius: 50%;
+}
+
+/* ============================================
+   右侧登录区域
+   ============================================ */
+.right-section {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-100);
+  position: relative;
+  margin-left: var(--spacing-3);
+}
+
+.login-card {
+  width: 400px;
+  box-shadow: none;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-100);
+}
+
 .login-card :deep(.el-card__header) {
-  background: linear-gradient(to bottom, 
-    var(--color-bg-100), 
-    var(--color-bg-000)
-  );
+  background: var(--color-bg-100);
   padding: var(--spacing-8) var(--spacing-6);
-  border-bottom: 2px solid var(--color-accent-main);
+  border-bottom: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .login-card :deep(.el-card__body) {
@@ -193,21 +264,16 @@ const goToRegister = () => {
 .card-header h2 {
   margin: 0 0 var(--spacing-3) 0;
   color: var(--color-text-000);
+  font-family: "Zhi Mang Xing", cursive;
   font-size: var(--text-3xl);
   font-weight: 700;
   letter-spacing: var(--tracking-tight);
-  background: linear-gradient(135deg, 
-    var(--color-accent-main), 
-    var(--color-accent-pro)
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .card-header p {
   margin: 0;
   color: var(--color-text-300);
+  font-family: "Zhi Mang Xing", cursive;
   font-size: var(--text-base);
   font-weight: 500;
   letter-spacing: var(--tracking-wide);
@@ -221,6 +287,7 @@ const goToRegister = () => {
 }
 
 .login-card :deep(.el-form-item__label) {
+  font-family: "Zhi Mang Xing", cursive;
   font-weight: 600;
   color: var(--color-text-100);
   font-size: var(--text-sm);
@@ -231,19 +298,28 @@ const goToRegister = () => {
 .login-card :deep(.el-input__wrapper) {
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-base);
+  border-radius: var(--radius-md);
 }
 
 .login-card :deep(.el-input__wrapper:hover) {
   box-shadow: var(--shadow-md);
+  border-color: var(--color-accent-main);
+}
+
+.login-card :deep(.el-input__wrapper.is-focus) {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-accent-main);
 }
 
 .login-card :deep(.el-button--primary) {
+  font-family: "Zhi Mang Xing", cursive;
   height: 48px;
   font-size: var(--text-base);
   font-weight: 600;
   letter-spacing: var(--tracking-wider);
   box-shadow: var(--shadow-md);
   transition: all var(--transition-base);
+  border-radius: var(--radius-md);
 }
 
 .login-card :deep(.el-button--primary:hover) {
@@ -256,6 +332,7 @@ const goToRegister = () => {
 }
 
 .login-card :deep(.el-button.is-text) {
+  font-family: "Zhi Mang Xing", cursive;
   color: var(--color-text-300);
   font-size: var(--text-sm);
   transition: color var(--transition-fast);
@@ -268,11 +345,74 @@ const goToRegister = () => {
 /* ============================================
    响应式设计
    ============================================ */
-@media (max-width: 480px) {
-  .login-card {
-    max-width: 100%;
+@media (max-width: 1200px) {
+  .login-container {
+    padding: var(--spacing-6);
   }
+  
+  .left-section {
+    margin-right: var(--spacing-2);
+  }
+  
+  .right-section {
+    margin-left: var(--spacing-2);
+  }
+  
+  .quote-text {
+    font-size: 40px;
+  }
+  
+  .login-card {
+    width: 360px;
+  }
+}
 
+@media (max-width: 1024px) {
+  .login-container {
+    flex-direction: column;
+    padding: var(--spacing-4);
+  }
+  
+  .left-section {
+    flex: 0 0 auto;
+    min-height: 40vh;
+    margin-right: 0;
+    margin-bottom: var(--spacing-3);
+  }
+  
+  .right-section {
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+  
+  .quote-text {
+    font-size: 36px;
+  }
+  
+  .login-card {
+    width: 400px;
+  }
+}
+
+@media (max-width: 768px) {
+  .login-container {
+    padding: var(--spacing-3);
+  }
+  
+  .left-section {
+    min-height: 35vh;
+    margin-bottom: var(--spacing-2);
+  }
+  
+  .quote-text {
+    font-size: 32px;
+  }
+  
+  .login-card {
+    width: 100%;
+    max-width: 400px;
+  }
+  
   .login-card :deep(.el-card__header) {
     padding: var(--spacing-6) var(--spacing-4);
   }
@@ -283,6 +423,28 @@ const goToRegister = () => {
 
   .card-header h2 {
     font-size: var(--text-2xl);
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    padding: var(--spacing-2);
+  }
+  
+  .left-section {
+    margin-bottom: var(--spacing-2);
+  }
+  
+  .quote-text {
+    font-size: 28px;
+  }
+  
+  .quote-decoration {
+    gap: var(--spacing-2);
+  }
+  
+  .decoration-line {
+    width: 40px;
   }
 }
 </style>
