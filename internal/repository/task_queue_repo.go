@@ -5,6 +5,8 @@ import (
 	"comment-review-platform/pkg/database"
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 )
 
 type TaskQueueRepository struct {
@@ -12,52 +14,55 @@ type TaskQueueRepository struct {
 }
 
 func NewTaskQueueRepository() *TaskQueueRepository {
-	return &TaskQueueRepository{db: database.DB}
+	return &TaskQueueRepository{
+		db: database.DB,
+	}
 }
 
 // CreateTaskQueue creates a new task queue
-func (r *TaskQueueRepository) CreateTaskQueue(req models.CreateTaskQueueRequest, createdByID int) (*models.TaskQueue, error) {
+func (r *TaskQueueRepository) CreateTaskQueue(req models.CreateTaskQueueRequest, adminID int) (*models.TaskQueue, error) {
 	query := `
-		INSERT INTO task_queue (queue_name, description, priority, total_tasks, completed_tasks, is_active, created_by, updated_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, true, $6, $6, NOW(), NOW())
-		RETURNING id, queue_name, description, priority, total_tasks, completed_tasks, is_active, created_by, updated_by, created_at, updated_at
+		INSERT INTO task_queues (queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, created_at, updated_at
 	`
 
-	var queue models.TaskQueue
-	err := r.db.QueryRow(query,
-		req.QueueName,
-		req.Description,
-		req.Priority,
-		req.TotalTasks,
-		req.CompletedTasks,
-		createdByID,
-	).Scan(
-		&queue.ID,
-		&queue.QueueName,
-		&queue.Description,
-		&queue.Priority,
-		&queue.TotalTasks,
-		&queue.CompletedTasks,
-		&queue.IsActive,
-		&queue.CreatedBy,
-		&queue.UpdatedBy,
-		&queue.CreatedAt,
-		&queue.UpdatedAt,
-	)
-
-	if err != nil {
-		return nil, err
+	now := time.Now()
+	queue := &models.TaskQueue{
+		QueueName:      req.QueueName,
+		Description:    req.Description,
+		Priority:       req.Priority,
+		TotalTasks:     req.TotalTasks,
+		CompletedTasks: req.CompletedTasks,
+		PendingTasks:   req.TotalTasks - req.CompletedTasks,
+		IsActive:       true,
 	}
 
-	queue.PendingTasks = queue.TotalTasks - queue.CompletedTasks
-	return &queue, nil
+	err := r.db.QueryRow(
+		query,
+		queue.QueueName,
+		queue.Description,
+		queue.Priority,
+		queue.TotalTasks,
+		queue.CompletedTasks,
+		queue.PendingTasks,
+		queue.IsActive,
+		now,
+		now,
+	).Scan(&queue.ID, &queue.CreatedAt, &queue.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task queue: %w", err)
+	}
+
+	return queue, nil
 }
 
 // GetTaskQueueByID retrieves a task queue by ID
 func (r *TaskQueueRepository) GetTaskQueueByID(id int) (*models.TaskQueue, error) {
 	query := `
-		SELECT id, queue_name, description, priority, total_tasks, completed_tasks, is_active, created_by, updated_by, created_at, updated_at
-		FROM task_queue
+		SELECT id, queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at
+		FROM task_queues
 		WHERE id = $1
 	`
 
@@ -69,75 +74,74 @@ func (r *TaskQueueRepository) GetTaskQueueByID(id int) (*models.TaskQueue, error
 		&queue.Priority,
 		&queue.TotalTasks,
 		&queue.CompletedTasks,
+		&queue.PendingTasks,
 		&queue.IsActive,
-		&queue.CreatedBy,
-		&queue.UpdatedBy,
 		&queue.CreatedAt,
 		&queue.UpdatedAt,
 	)
 
 	if err != nil {
-		return nil, err
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("task queue not found")
+		}
+		return nil, fmt.Errorf("failed to get task queue: %w", err)
 	}
 
-	queue.PendingTasks = queue.TotalTasks - queue.CompletedTasks
 	return &queue, nil
 }
 
-// ListTaskQueues retrieves task queues with pagination and filtering
+// ListTaskQueues returns paginated task queues with real-time statistics
 func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) ([]models.TaskQueue, int, error) {
-	// Build base query
-	baseQuery := `SELECT id, queue_name, description, priority, total_tasks, completed_tasks, is_active, created_by, updated_by, created_at, updated_at FROM task_queue WHERE 1=1`
-	countQuery := `SELECT COUNT(*) FROM task_queue WHERE 1=1`
-	args := []interface{}{}
+	// Build WHERE clause
+	var conditions []string
+	var args []interface{}
 	argIndex := 1
 
-	// Add search filter
 	if req.Search != "" {
-		baseQuery += fmt.Sprintf(` AND queue_name ILIKE $%d`, argIndex)
-		countQuery += fmt.Sprintf(` AND queue_name ILIKE $%d`, argIndex)
+		conditions = append(conditions, fmt.Sprintf("(queue_name ILIKE $%d OR description ILIKE $%d)", argIndex, argIndex))
 		args = append(args, "%"+req.Search+"%")
 		argIndex++
 	}
 
-	// Add active filter
 	if req.IsActive != nil {
-		baseQuery += fmt.Sprintf(` AND is_active = $%d`, argIndex)
-		countQuery += fmt.Sprintf(` AND is_active = $%d`, argIndex)
+		conditions = append(conditions, fmt.Sprintf("is_active = $%d", argIndex))
 		args = append(args, *req.IsActive)
 		argIndex++
 	}
 
-	// Get total count
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Count total records from the view
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM queue_stats %s", whereClause)
 	var total int
-	countArgs := args[:len(args)]
-	err := r.db.QueryRow(countQuery, countArgs...).Scan(&total)
+	err := r.db.QueryRow(countQuery, args...).Scan(&total)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("failed to count task queues: %w", err)
 	}
 
-	// Set defaults for pagination
-	if req.Page < 1 {
-		req.Page = 1
-	}
-	if req.PageSize < 1 || req.PageSize > 100 {
-		req.PageSize = 20
-	}
-
-	// Add sorting and pagination
-	baseQuery += ` ORDER BY priority DESC, created_at DESC`
+	// Get paginated results from the view with real-time statistics
 	offset := (req.Page - 1) * req.PageSize
-	baseQuery += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, argIndex, argIndex+1)
+	query := fmt.Sprintf(`
+		SELECT queue_id as id, queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at
+		FROM queue_stats
+		%s
+		ORDER BY priority DESC, created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIndex, argIndex+1)
+
 	args = append(args, req.PageSize, offset)
 
-	// Execute query
-	rows, err := r.db.Query(baseQuery, args...)
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("failed to query task queues: %w", err)
 	}
 	defer rows.Close()
 
-	queues := []models.TaskQueue{}
+	// Initialize as empty slice to avoid null in JSON response
+	queues := make([]models.TaskQueue, 0)
 	for rows.Next() {
 		var queue models.TaskQueue
 		err := rows.Scan(
@@ -147,140 +151,118 @@ func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) (
 			&queue.Priority,
 			&queue.TotalTasks,
 			&queue.CompletedTasks,
+			&queue.PendingTasks,
 			&queue.IsActive,
-			&queue.CreatedBy,
-			&queue.UpdatedBy,
 			&queue.CreatedAt,
 			&queue.UpdatedAt,
 		)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("failed to scan task queue: %w", err)
 		}
-		queue.PendingTasks = queue.TotalTasks - queue.CompletedTasks
 		queues = append(queues, queue)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating task queues: %w", err)
 	}
 
 	return queues, total, nil
 }
 
 // UpdateTaskQueue updates a task queue
-func (r *TaskQueueRepository) UpdateTaskQueue(id int, req models.UpdateTaskQueueRequest, updatedByID int) (*models.TaskQueue, error) {
-	// Get current queue first
-	current, err := r.GetTaskQueueByID(id)
+func (r *TaskQueueRepository) UpdateTaskQueue(id int, req models.UpdateTaskQueueRequest, adminID int) (*models.TaskQueue, error) {
+	// Get existing queue first
+	queue, err := r.GetTaskQueueByID(id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build update query dynamically
-	updates := []string{}
-	args := []interface{}{}
-	argIndex := 1
-
+	// Update fields if provided
 	if req.QueueName != nil {
-		updates = append(updates, fmt.Sprintf(`queue_name = $%d`, argIndex))
-		args = append(args, *req.QueueName)
-		argIndex++
+		queue.QueueName = *req.QueueName
 	}
-
 	if req.Description != nil {
-		updates = append(updates, fmt.Sprintf(`description = $%d`, argIndex))
-		args = append(args, *req.Description)
-		argIndex++
+		queue.Description = *req.Description
 	}
-
 	if req.Priority != nil {
-		updates = append(updates, fmt.Sprintf(`priority = $%d`, argIndex))
-		args = append(args, *req.Priority)
-		argIndex++
+		queue.Priority = *req.Priority
 	}
-
 	if req.TotalTasks != nil {
-		updates = append(updates, fmt.Sprintf(`total_tasks = $%d`, argIndex))
-		args = append(args, *req.TotalTasks)
-		argIndex++
+		queue.TotalTasks = *req.TotalTasks
 	}
-
 	if req.CompletedTasks != nil {
-		updates = append(updates, fmt.Sprintf(`completed_tasks = $%d`, argIndex))
-		args = append(args, *req.CompletedTasks)
-		argIndex++
+		queue.CompletedTasks = *req.CompletedTasks
+		queue.PendingTasks = queue.TotalTasks - *req.CompletedTasks
 	}
-
 	if req.IsActive != nil {
-		updates = append(updates, fmt.Sprintf(`is_active = $%d`, argIndex))
-		args = append(args, *req.IsActive)
-		argIndex++
+		queue.IsActive = *req.IsActive
 	}
 
-	// Add updated_by and updated_at
-	updates = append(updates, fmt.Sprintf(`updated_by = $%d`, argIndex))
-	args = append(args, updatedByID)
-	argIndex++
+	query := `
+		UPDATE task_queues
+		SET queue_name = $2, description = $3, priority = $4, total_tasks = $5, 
+		    completed_tasks = $6, pending_tasks = $7, is_active = $8, updated_at = $9
+		WHERE id = $1
+		RETURNING updated_at
+	`
 
-	updates = append(updates, `updated_at = NOW()`)
-
-	// Add ID to args
-	args = append(args, id)
-
-	if len(updates) == 0 {
-		return current, nil
-	}
-
-	query := `UPDATE task_queue SET `
-	for i, update := range updates {
-		if i > 0 {
-			query += `, `
-		}
-		query += update
-	}
-	query += fmt.Sprintf(` WHERE id = $%d RETURNING id, queue_name, description, priority, total_tasks, completed_tasks, is_active, created_by, updated_by, created_at, updated_at`, argIndex)
-
-	var queue models.TaskQueue
-	err = r.db.QueryRow(query, args...).Scan(
-		&queue.ID,
-		&queue.QueueName,
-		&queue.Description,
-		&queue.Priority,
-		&queue.TotalTasks,
-		&queue.CompletedTasks,
-		&queue.IsActive,
-		&queue.CreatedBy,
-		&queue.UpdatedBy,
-		&queue.CreatedAt,
-		&queue.UpdatedAt,
-	)
+	now := time.Now()
+	err = r.db.QueryRow(
+		query,
+		queue.ID,
+		queue.QueueName,
+		queue.Description,
+		queue.Priority,
+		queue.TotalTasks,
+		queue.CompletedTasks,
+		queue.PendingTasks,
+		queue.IsActive,
+		now,
+	).Scan(&queue.UpdatedAt)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to update task queue: %w", err)
 	}
 
-	queue.PendingTasks = queue.TotalTasks - queue.CompletedTasks
-	return &queue, nil
+	return queue, nil
 }
 
-// DeleteTaskQueue soft deletes a task queue (sets is_active to false)
+// DeleteTaskQueue deletes a task queue
 func (r *TaskQueueRepository) DeleteTaskQueue(id int) error {
-	query := `UPDATE task_queue SET is_active = false, updated_at = NOW() WHERE id = $1`
-	_, err := r.db.Exec(query, id)
-	return err
+	query := "DELETE FROM task_queues WHERE id = $1"
+	result, err := r.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete task queue: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("task queue not found")
+	}
+
+	return nil
 }
 
-// GetAllTaskQueues retrieves all active task queues
+// GetAllTaskQueues returns all task queues with real-time statistics
 func (r *TaskQueueRepository) GetAllTaskQueues() ([]models.TaskQueue, error) {
 	query := `
-		SELECT id, queue_name, description, priority, total_tasks, completed_tasks, is_active, created_by, updated_by, created_at, updated_at
-		FROM task_queue
-		WHERE is_active = true
+		SELECT queue_id as id, queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at
+		FROM queue_stats
 		ORDER BY priority DESC, created_at DESC
 	`
 
 	rows, err := r.db.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query task queues: %w", err)
 	}
 	defer rows.Close()
 
-	queues := []models.TaskQueue{}
+	// Initialize as empty slice to avoid null in JSON response
+	queues := make([]models.TaskQueue, 0)
 	for rows.Next() {
 		var queue models.TaskQueue
 		err := rows.Scan(
@@ -290,17 +272,19 @@ func (r *TaskQueueRepository) GetAllTaskQueues() ([]models.TaskQueue, error) {
 			&queue.Priority,
 			&queue.TotalTasks,
 			&queue.CompletedTasks,
+			&queue.PendingTasks,
 			&queue.IsActive,
-			&queue.CreatedBy,
-			&queue.UpdatedBy,
 			&queue.CreatedAt,
 			&queue.UpdatedAt,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan task queue: %w", err)
 		}
-		queue.PendingTasks = queue.TotalTasks - queue.CompletedTasks
 		queues = append(queues, queue)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating task queues: %w", err)
 	}
 
 	return queues, nil

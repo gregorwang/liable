@@ -53,7 +53,8 @@ func (r *NotificationRepository) GetUnreadByUser(userID int, limit int) ([]model
 	}
 	defer rows.Close()
 
-	var notifications []models.NotificationResponse
+	// Initialize as empty slice to avoid null in JSON response
+	notifications := make([]models.NotificationResponse, 0)
 	for rows.Next() {
 		var n models.NotificationResponse
 		err := rows.Scan(
@@ -113,7 +114,8 @@ func (r *NotificationRepository) GetRecent(userID int, limit, offset int) ([]mod
 	}
 	defer rows.Close()
 
-	var notifications []models.NotificationResponse
+	// Initialize as empty slice to avoid null in JSON response
+	notifications := make([]models.NotificationResponse, 0)
 	for rows.Next() {
 		var n models.NotificationResponse
 		err := rows.Scan(

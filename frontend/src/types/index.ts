@@ -73,6 +73,30 @@ export interface OverviewStats {
   active_reviewers: number
   pending_tasks: number
   in_progress_tasks: number
+  queue_stats: QueueStats[]
+  quality_metrics: QualityMetrics
+}
+
+export interface QueueStats {
+  queue_name: string
+  total_tasks: number
+  completed_tasks: number
+  pending_tasks: number
+  approved_count: number
+  rejected_count: number
+  approval_rate: number
+  avg_process_time: number
+  is_active: boolean
+}
+
+export interface QualityMetrics {
+  total_quality_checks: number
+  passed_quality_checks: number
+  failed_quality_checks: number
+  quality_pass_rate: number
+  second_review_tasks: number
+  second_review_completed: number
+  second_review_rate: number
 }
 
 export interface HourlyStats {
@@ -319,5 +343,67 @@ export interface ListTaskQueuesResponse {
   page: number
   page_size: number
   total_pages: number
+}
+
+// Quality Check types
+export interface QualityCheckTask {
+  id: number
+  first_review_result_id: number
+  comment_id: number
+  reviewer_id: number | null
+  status: 'pending' | 'in_progress' | 'completed'
+  claimed_at: string | null
+  completed_at: string | null
+  created_at: string
+  comment?: Comment
+  first_review_result?: FirstReviewResult
+}
+
+export interface QualityCheckResult {
+  id: number
+  qc_task_id: number
+  reviewer_id: number
+  is_passed: boolean
+  error_type?: string
+  qc_comment?: string
+  created_at: string
+}
+
+export interface QCReviewResult {
+  task_id: number
+  is_passed: boolean
+  error_type?: string
+  qc_comment?: string
+}
+
+export interface QCStats {
+  today_completed: number
+  total_completed: number
+  pass_rate: number
+  total_tasks: number
+  pending_tasks: number
+  in_progress_tasks: number
+  error_type_stats: QCErrorTypeStat[]
+}
+
+export interface QCErrorTypeStat {
+  error_type: string
+  count: number
+}
+
+export interface ClaimQCTasksRequest {
+  count: number
+}
+
+export interface SubmitQCRequest {
+  task_id: number
+  is_passed: boolean
+  error_type?: string
+  qc_comment?: string
+}
+
+export interface QCTasksResponse {
+  tasks: QualityCheckTask[]
+  count: number
 }
 

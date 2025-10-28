@@ -5,7 +5,7 @@ echo ========================================
 echo.
 
 echo [1/2] 启动后端服务 (Go)...
-start "Backend Server" cmd /k "go run cmd/api/main.go"
+start "Backend Server" cmd /k ""go run cmd/api/main.go
 timeout /t 3 /nobreak >nul
 
 echo [2/2] 启动前端服务 (Vue)...

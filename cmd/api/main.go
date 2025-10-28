@@ -47,6 +47,9 @@ func main() {
 	// Start background task for releasing expired tasks
 	go startTaskReleaseWorker()
 
+	// Start daily sampling scheduler
+	go startSamplingScheduler()
+
 	// Setup Gin router
 	router := setupRouter(db)
 
@@ -89,6 +92,7 @@ func setupRouter(db interface{}) *gin.Engine {
 	authHandler := handlers.NewAuthHandler()
 	taskHandler := handlers.NewTaskHandler()
 	secondReviewHandler := handlers.NewSecondReviewHandler()
+	qualityCheckHandler := handlers.NewQualityCheckHandler()
 	adminHandler := handlers.NewAdminHandler()
 
 	// Type assert database connection
@@ -140,6 +144,14 @@ func setupRouter(db interface{}) *gin.Engine {
 			tasks.POST("/second-review/submit", secondReviewHandler.SubmitSecondReview)
 			tasks.POST("/second-review/submit-batch", secondReviewHandler.SubmitBatchSecondReviews)
 			tasks.POST("/second-review/return", secondReviewHandler.ReturnSecondReviewTasks)
+
+			// Quality check routes
+			tasks.POST("/quality-check/claim", qualityCheckHandler.ClaimQCTasks)
+			tasks.GET("/quality-check/my", qualityCheckHandler.GetMyQCTasks)
+			tasks.POST("/quality-check/submit", qualityCheckHandler.SubmitQCReview)
+			tasks.POST("/quality-check/submit-batch", qualityCheckHandler.SubmitBatchQCReviews)
+			tasks.POST("/quality-check/return", qualityCheckHandler.ReturnQCTasks)
+			tasks.GET("/quality-check/stats", qualityCheckHandler.GetQCStats)
 		}
 
 		// Search route (requires login, available for both admin and reviewer)
@@ -219,9 +231,16 @@ func initializeDefaultData() error {
 	return nil
 }
 
+func startSamplingScheduler() {
+	samplingService := services.NewSamplingService()
+	log.Println("✅ Daily sampling scheduler started")
+	samplingService.StartDailySamplingScheduler()
+}
+
 func startTaskReleaseWorker() {
 	taskService := services.NewTaskService()
 	secondReviewService := services.NewSecondReviewService()
+	qcService := services.NewQualityCheckService()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -233,6 +252,9 @@ func startTaskReleaseWorker() {
 		}
 		if err := secondReviewService.ReleaseExpiredSecondReviewTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired second review tasks: %v", err)
+		}
+		if err := qcService.ReleaseExpiredQCTasks(); err != nil {
+			log.Printf("⚠️ Error releasing expired QC tasks: %v", err)
 		}
 	}
 }

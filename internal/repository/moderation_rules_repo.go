@@ -76,7 +76,8 @@ func (r *ModerationRulesRepository) ListRules(req *models.ListModerationRulesReq
 	}
 	defer rows.Close()
 
-	var rules []models.ModerationRule
+	// Initialize as empty slice to avoid null in JSON response
+	rules := make([]models.ModerationRule, 0)
 	for rows.Next() {
 		var rule models.ModerationRule
 		err := rows.Scan(
@@ -113,7 +114,8 @@ func (r *ModerationRulesRepository) GetAllRules() ([]models.ModerationRule, int,
 	}
 	defer rows.Close()
 
-	var rules []models.ModerationRule
+	// Initialize as empty slice to avoid null in JSON response
+	rules := make([]models.ModerationRule, 0)
 	for rows.Next() {
 		var rule models.ModerationRule
 		err := rows.Scan(
@@ -181,7 +183,8 @@ func (r *ModerationRulesRepository) GetCategories() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var categories []string
+	// Initialize as empty slice to avoid null in JSON response
+	categories := make([]string, 0)
 	for rows.Next() {
 		var category string
 		if err := rows.Scan(&category); err != nil {
@@ -201,7 +204,8 @@ func (r *ModerationRulesRepository) GetRiskLevels() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var levels []string
+	// Initialize as empty slice to avoid null in JSON response
+	levels := make([]string, 0)
 	for rows.Next() {
 		var level string
 		if err := rows.Scan(&level); err != nil {

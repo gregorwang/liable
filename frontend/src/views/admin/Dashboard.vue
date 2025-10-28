@@ -120,6 +120,135 @@
             </div>
           </el-card>
           
+          <!-- Queue Statistics Card -->
+          <el-card shadow="hover" style="margin-top: 24px">
+            <template #header>
+              <div style="display: flex; justify-content: space-between; align-items: center">
+                <span style="font-weight: bold">队列统计</span>
+                <el-icon><DataAnalysis /></el-icon>
+              </div>
+            </template>
+            
+            <div class="queue-stats-grid">
+              <div 
+                v-for="queue in stats.queue_stats" 
+                :key="queue.queue_name"
+                class="queue-stat-item"
+                :class="{ 'inactive': !queue.is_active }"
+              >
+                <div class="queue-header">
+                  <h4>{{ queue.queue_name }}</h4>
+                  <el-tag :type="queue.is_active ? 'success' : 'info'" size="small">
+                    {{ queue.is_active ? '活跃' : '暂停' }}
+                  </el-tag>
+                </div>
+                
+                <div class="queue-metrics">
+                  <div class="metric-row">
+                    <span class="metric-label">总任务:</span>
+                    <span class="metric-value">{{ formatNumber(queue.total_tasks) }}</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="metric-label">已完成:</span>
+                    <span class="metric-value">{{ formatNumber(queue.completed_tasks) }}</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="metric-label">待处理:</span>
+                    <span class="metric-value">{{ formatNumber(queue.pending_tasks) }}</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="metric-label">通过率:</span>
+                    <span class="metric-value">{{ formatPercent(queue.approval_rate) }}</span>
+                  </div>
+                  <div class="metric-row">
+                    <span class="metric-label">平均处理时间:</span>
+                    <span class="metric-value">{{ queue.avg_process_time.toFixed(1) }}分钟</span>
+                  </div>
+                </div>
+                
+                <div class="queue-progress">
+                  <el-progress 
+                    :percentage="getPercentage(queue.completed_tasks, queue.total_tasks)"
+                    :stroke-width="8"
+                    :status="queue.completed_tasks === queue.total_tasks ? 'success' : 'primary'"
+                  />
+                </div>
+              </div>
+            </div>
+          </el-card>
+          
+          <!-- Quality Metrics Card -->
+          <el-card shadow="hover" style="margin-top: 24px">
+            <template #header>
+              <div style="display: flex; justify-content: space-between; align-items: center">
+                <span style="font-weight: bold">质量指标</span>
+                <el-icon><CircleCheck /></el-icon>
+              </div>
+            </template>
+            
+            <div class="quality-metrics-grid">
+              <div class="quality-metric-item">
+                <div class="metric-icon" style="background: #f0f9ff; color: #409eff">
+                  <el-icon :size="24"><DataAnalysis /></el-icon>
+                </div>
+                <div class="metric-info">
+                  <div class="metric-value">{{ formatNumber(stats.quality_metrics.total_quality_checks) }}</div>
+                  <div class="metric-label">质检总数</div>
+                </div>
+              </div>
+              
+              <div class="quality-metric-item">
+                <div class="metric-icon" style="background: #f0f9ff; color: #67c23a">
+                  <el-icon :size="24"><CircleCheck /></el-icon>
+                </div>
+                <div class="metric-info">
+                  <div class="metric-value">{{ formatNumber(stats.quality_metrics.passed_quality_checks) }}</div>
+                  <div class="metric-label">质检通过</div>
+                </div>
+              </div>
+              
+              <div class="quality-metric-item">
+                <div class="metric-icon" style="background: #fef0f0; color: #f56c6c">
+                  <el-icon :size="24"><Warning /></el-icon>
+                </div>
+                <div class="metric-info">
+                  <div class="metric-value">{{ formatNumber(stats.quality_metrics.failed_quality_checks) }}</div>
+                  <div class="metric-label">质检失败</div>
+                </div>
+              </div>
+              
+              <div class="quality-metric-item">
+                <div class="metric-icon" style="background: #f4f4f5; color: #909399">
+                  <el-icon :size="24"><DataAnalysis /></el-icon>
+                </div>
+                <div class="metric-info">
+                  <div class="metric-value">{{ formatPercent(stats.quality_metrics.quality_pass_rate) }}</div>
+                  <div class="metric-label">质检通过率</div>
+                </div>
+              </div>
+              
+              <div class="quality-metric-item">
+                <div class="metric-icon" style="background: #f0f9ff; color: #409eff">
+                  <el-icon :size="24"><Document /></el-icon>
+                </div>
+                <div class="metric-info">
+                  <div class="metric-value">{{ formatNumber(stats.quality_metrics.second_review_tasks) }}</div>
+                  <div class="metric-label">二审任务</div>
+                </div>
+              </div>
+              
+              <div class="quality-metric-item">
+                <div class="metric-icon" style="background: #f0f9ff; color: #67c23a">
+                  <el-icon :size="24"><CircleCheck /></el-icon>
+                </div>
+                <div class="metric-info">
+                  <div class="metric-value">{{ formatNumber(stats.quality_metrics.second_review_completed) }}</div>
+                  <div class="metric-label">二审完成</div>
+                </div>
+              </div>
+            </div>
+          </el-card>
+          
           <!-- Send Notification Card -->
           <el-card shadow="hover" style="margin-top: 24px">
             <template #header>
@@ -212,6 +341,16 @@ const stats = ref<OverviewStats>({
   active_reviewers: 0,
   pending_tasks: 0,
   in_progress_tasks: 0,
+  queue_stats: [],
+  quality_metrics: {
+    total_quality_checks: 0,
+    passed_quality_checks: 0,
+    failed_quality_checks: 0,
+    quality_pass_rate: 0,
+    second_review_tasks: 0,
+    second_review_completed: 0,
+    second_review_rate: 0,
+  },
 })
 
 // Notification form
@@ -429,6 +568,161 @@ const resetNotificationForm = () => {
 @media (max-width: 1024px) {
   .stats-grid {
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  }
+}
+
+/* ============================================
+   队列统计样式
+   ============================================ */
+.queue-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--spacing-6);
+}
+
+.queue-stat-item {
+  padding: var(--spacing-4);
+  border: 1px solid var(--color-border-lighter);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-000);
+  transition: all var(--transition-base);
+}
+
+.queue-stat-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.queue-stat-item.inactive {
+  opacity: 0.6;
+  background: var(--color-bg-100);
+}
+
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-4);
+}
+
+.queue-header h4 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text-000);
+}
+
+.queue-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-4);
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-400);
+  font-weight: 500;
+}
+
+.metric-value {
+  font-size: var(--text-sm);
+  color: var(--color-text-200);
+  font-weight: 600;
+}
+
+.queue-progress {
+  margin-top: var(--spacing-2);
+}
+
+/* ============================================
+   质量指标样式
+   ============================================ */
+.quality-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-4);
+}
+
+.quality-metric-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-lighter);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-000);
+  transition: all var(--transition-base);
+}
+
+.quality-metric-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.quality-metric-item .metric-icon {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.quality-metric-item .metric-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.quality-metric-item .metric-value {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-text-000);
+  line-height: var(--leading-tight);
+  margin-bottom: var(--spacing-1);
+}
+
+.quality-metric-item .metric-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-400);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ============================================
+   响应式设计扩展
+   ============================================ */
+@media (max-width: 768px) {
+  .queue-stats-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-4);
+  }
+  
+  .quality-metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--spacing-3);
+  }
+  
+  .quality-metric-item {
+    padding: var(--spacing-2);
+  }
+  
+  .quality-metric-item .metric-icon {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+  
+  .quality-metric-item .metric-value {
+    font-size: var(--text-lg);
   }
 }
 </style>

@@ -101,6 +101,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
+      path: '/reviewer/quality-check',
+      name: 'QualityCheckDashboard',
+      component: () => import('../views/reviewer/QualityCheckDashboard.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
       path: '/admin',
       redirect: '/main/queue-list',
       meta: { requiresAuth: true, role: 'admin' },

@@ -98,15 +98,39 @@ type ApproveUserRequest struct {
 }
 
 type StatsOverview struct {
-	TotalTasks      int     `json:"total_tasks"`
-	CompletedTasks  int     `json:"completed_tasks"`
-	ApprovedCount   int     `json:"approved_count"`
-	RejectedCount   int     `json:"rejected_count"`
-	ApprovalRate    float64 `json:"approval_rate"`
-	TotalReviewers  int     `json:"total_reviewers"`
-	ActiveReviewers int     `json:"active_reviewers"`
-	PendingTasks    int     `json:"pending_tasks"`
-	InProgressTasks int     `json:"in_progress_tasks"`
+	TotalTasks      int            `json:"total_tasks"`
+	CompletedTasks  int            `json:"completed_tasks"`
+	ApprovedCount   int            `json:"approved_count"`
+	RejectedCount   int            `json:"rejected_count"`
+	ApprovalRate    float64        `json:"approval_rate"`
+	TotalReviewers  int            `json:"total_reviewers"`
+	ActiveReviewers int            `json:"active_reviewers"`
+	PendingTasks    int            `json:"pending_tasks"`
+	InProgressTasks int            `json:"in_progress_tasks"`
+	QueueStats      []QueueStats   `json:"queue_stats"`
+	QualityMetrics  QualityMetrics `json:"quality_metrics"`
+}
+
+type QueueStats struct {
+	QueueName      string  `json:"queue_name"`
+	TotalTasks     int     `json:"total_tasks"`
+	CompletedTasks int     `json:"completed_tasks"`
+	PendingTasks   int     `json:"pending_tasks"`
+	ApprovedCount  int     `json:"approved_count"`
+	RejectedCount  int     `json:"rejected_count"`
+	ApprovalRate   float64 `json:"approval_rate"`
+	AvgProcessTime float64 `json:"avg_process_time"` // in minutes
+	IsActive       bool    `json:"is_active"`
+}
+
+type QualityMetrics struct {
+	TotalQualityChecks    int     `json:"total_quality_checks"`
+	PassedQualityChecks   int     `json:"passed_quality_checks"`
+	FailedQualityChecks   int     `json:"failed_quality_checks"`
+	QualityPassRate       float64 `json:"quality_pass_rate"`
+	SecondReviewTasks     int     `json:"second_review_tasks"`
+	SecondReviewCompleted int     `json:"second_review_completed"`
+	SecondReviewRate      float64 `json:"second_review_rate"`
 }
 
 type HourlyStats struct {
@@ -393,4 +417,73 @@ type BatchSubmitSecondReviewRequest struct {
 
 type ReturnSecondReviewTasksRequest struct {
 	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
+}
+
+// Quality Check Models
+
+// QualityCheckTask represents a quality check task
+type QualityCheckTask struct {
+	ID                  int           `json:"id"`
+	FirstReviewResultID int           `json:"first_review_result_id"`
+	CommentID           int64         `json:"comment_id"`
+	ReviewerID          *int          `json:"reviewer_id"`
+	Status              string        `json:"status"` // "pending", "in_progress", "completed"
+	ClaimedAt           *time.Time    `json:"claimed_at"`
+	CompletedAt         *time.Time    `json:"completed_at"`
+	CreatedAt           time.Time     `json:"created_at"`
+	Comment             *Comment      `json:"comment,omitempty"`             // Optional joined data
+	FirstReviewResult   *ReviewResult `json:"first_review_result,omitempty"` // Optional joined data
+}
+
+// QualityCheckResult represents the result of a quality check
+type QualityCheckResult struct {
+	ID         int       `json:"id"`
+	QCTaskID   int       `json:"qc_task_id"`
+	ReviewerID int       `json:"reviewer_id"`
+	IsPassed   bool      `json:"is_passed"`
+	ErrorType  *string   `json:"error_type,omitempty"` // "misjudgment", "standard_deviation", "missing_violation", "other"
+	QCComment  *string   `json:"qc_comment,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Request/Response DTOs for Quality Check
+
+type ClaimQCTasksRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=50"`
+}
+
+type ClaimQCTasksResponse struct {
+	Tasks []QualityCheckTask `json:"tasks"`
+	Count int                `json:"count"`
+}
+
+type SubmitQCRequest struct {
+	TaskID    int     `json:"task_id" binding:"required"`
+	IsPassed  bool    `json:"is_passed"`
+	ErrorType *string `json:"error_type,omitempty"`
+	QCComment *string `json:"qc_comment,omitempty"`
+}
+
+type BatchSubmitQCRequest struct {
+	Reviews []SubmitQCRequest `json:"reviews" binding:"required,dive"`
+}
+
+type ReturnQCTasksRequest struct {
+	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
+}
+
+// Quality Check Statistics
+type QCStats struct {
+	TodayCompleted  int               `json:"today_completed"`
+	TotalCompleted  int               `json:"total_completed"`
+	PassRate        float64           `json:"pass_rate"`
+	TotalTasks      int               `json:"total_tasks"`
+	PendingTasks    int               `json:"pending_tasks"`
+	InProgressTasks int               `json:"in_progress_tasks"`
+	ErrorTypeStats  []QCErrorTypeStat `json:"error_type_stats"`
+}
+
+type QCErrorTypeStat struct {
+	ErrorType string `json:"error_type"`
+	Count     int    `json:"count"`
 }

@@ -226,6 +226,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as adminAPI from '../../api/admin'
+import type { TaskQueue } from '../../types'
 
 interface FormData {
   queue_name: string
@@ -238,7 +239,7 @@ interface FormData {
 
 // State
 const loading = ref(false)
-const queues = ref<adminAPI.TaskQueue[]>([])
+const queues = ref<TaskQueue[]>([])
 const searchText = ref('')
 const filterActive = ref<boolean | undefined>(undefined)
 const currentPage = ref(1)
@@ -314,7 +315,7 @@ const openAddDialog = () => {
   dialogVisible.value = true
 }
 
-const openEditDialog = (row: adminAPI.TaskQueue) => {
+const openEditDialog = (row: TaskQueue) => {
   isEditing.value = true
   editingId.value = row.id
   formData.value = {

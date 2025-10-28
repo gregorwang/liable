@@ -185,11 +185,13 @@ const loadData = async () => {
       page: currentPage.value,
       page_size: pageSize.value,
     })
-    tableData.value = response.data
-    total.value = response.total
+    
+    // Ensure data is always an array, even if backend returns null
+    tableData.value = response.data || []
+    total.value = response.total || 0
   } catch (error) {
-    ElMessage.error('加载数据失败')
     console.error('Failed to load data:', error)
+    ElMessage.error('加载数据失败')
   } finally {
     loading.value = false
   }
@@ -207,6 +209,9 @@ const handleAnnotate = (row: TaskQueue) => {
   // 根据队列名称判断跳转到哪个审核界面
   if (row.queue_name === '评论审核二审') {
     router.push('/reviewer/second-review')
+  } else if (row.queue_name === '评论一审质检队列') {
+    // 质检队列跳转到质检工作台
+    router.push('/reviewer/quality-check')
   } else {
     // 其他队列（包括一审队列）跳转到通用的一审审核界面
     router.push('/reviewer/dashboard')

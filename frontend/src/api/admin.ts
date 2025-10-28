@@ -100,7 +100,7 @@ export async function createTaskQueue(payload: {
   completed_tasks?: number
 }): Promise<TaskQueue> {
   const response = await request.post('/admin/task-queues', payload)
-  return response
+  return response as unknown as TaskQueue
 }
 
 // List task queues with pagination
@@ -111,13 +111,13 @@ export async function listTaskQueues(params?: {
   page_size?: number
 }): Promise<ListTaskQueuesResponse> {
   const response = await request.get('/admin/task-queues', { params })
-  return response
+  return response as unknown as ListTaskQueuesResponse
 }
 
 // Get single task queue by ID
 export async function getTaskQueue(id: number): Promise<TaskQueue> {
   const response = await request.get(`/admin/task-queues/${id}`)
-  return response
+  return response as unknown as TaskQueue
 }
 
 // Update task queue
@@ -133,13 +133,13 @@ export async function updateTaskQueue(
   }
 ): Promise<TaskQueue> {
   const response = await request.put(`/admin/task-queues/${id}`, payload)
-  return response
+  return response as unknown as TaskQueue
 }
 
 // Delete task queue
 export async function deleteTaskQueue(id: number): Promise<{ message: string }> {
   const response = await request.delete(`/admin/task-queues/${id}`)
-  return response
+  return response as unknown as { message: string }
 }
 
 // Get all active task queues
@@ -148,7 +148,7 @@ export async function getAllTaskQueues(): Promise<{
   count: number
 }> {
   const response = await request.get('/admin/task-queues-all')
-  return response
+  return response as unknown as { queues: TaskQueue[]; count: number }
 }
 
 // ==================== Public Task Queue APIs (for Reviewers) ====================
@@ -163,7 +163,7 @@ export async function listTaskQueuesPublic(params?: {
   page_size?: number
 }): Promise<ListTaskQueuesResponse> {
   const response = await request.get('/queues', { params })
-  return response
+  return response as unknown as ListTaskQueuesResponse
 }
 
 /**
@@ -171,6 +171,6 @@ export async function listTaskQueuesPublic(params?: {
  */
 export async function getTaskQueuePublic(id: number): Promise<TaskQueue> {
   const response = await request.get(`/queues/${id}`)
-  return response
+  return response as unknown as TaskQueue
 }
 

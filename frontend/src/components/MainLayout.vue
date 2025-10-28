@@ -157,10 +157,18 @@
           </el-menu-item>
         </el-menu>
       </el-aside>
-
-      <!-- 主内容区 -->
+      
+      <!-- 主内容区域 -->
       <el-main class="main-content">
-        <component :is="currentComponent" />
+        <Suspense>
+          <component :is="currentComponent" />
+          <template #fallback>
+            <div class="loading-container">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>加载中...</span>
+            </div>
+          </template>
+        </Suspense>
       </el-main>
     </el-container>
   </el-container>
@@ -182,7 +190,8 @@ import {
   Setting,
   Bell,
   PriceTag,
-  Operation
+  Operation,
+  Loading
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { useNotificationStore } from '../stores/notification'
@@ -197,7 +206,13 @@ const notificationStore = useNotificationStore()
 // 2. Vue 能够正确地识别和缓存这些异步组件
 // 3. 支持 Suspense 边界和错误处理
 const asyncComponents: Record<string, any> = {
-  'queue-list': defineAsyncComponent(() => import('./QueueList.vue')),
+  'queue-list': defineAsyncComponent({
+    loader: () => import('./QueueList.vue'), // 重新启用QueueList组件
+    loadingComponent: () => '加载中...',
+    errorComponent: () => '加载失败',
+    delay: 200,
+    timeout: 3000
+  }),
   'data-management': defineAsyncComponent(() => import('../views/SearchTasks.vue')),
   'history-announcements': defineAsyncComponent(() => import('../views/HistoryAnnouncements.vue')),
   'rule-documentation': defineAsyncComponent(() => import('../views/admin/ModerationRules.vue')),
@@ -222,7 +237,8 @@ const sidebarWidth = computed(() => isCollapsed.value ? '64px' : '200px')
 
 // 当前显示的组件
 const currentComponent = computed(() => {
-  return asyncComponents[activeMenu.value] || asyncComponents['queue-list']
+  const component = asyncComponents[activeMenu.value] || asyncComponents['queue-list']
+  return component
 })
 
 // 方法
@@ -231,10 +247,7 @@ const toggleCollapse = () => {
 }
 
 const handleMenuSelect = (index: string) => {
-  console.log('🔍 Menu clicked:', index)
   activeMenu.value = index
-  console.log('📦 Active menu updated to:', activeMenu.value)
-  console.log('🎯 Current component:', currentComponent.value)
 }
 
 const handleUserCommand = async (command: string) => {
@@ -453,6 +466,23 @@ onMounted(() => {
     rgba(255, 255, 255, 0.95) 100%);
   overflow-y: auto;
   font-family: var(--font-sans);
+}
+
+/* 加载容器样式 */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  gap: var(--spacing-4);
+  color: var(--color-text-300);
+  font-size: var(--text-sm);
+}
+
+.loading-container .el-icon {
+  font-size: var(--text-2xl);
+  color: var(--color-accent-main);
 }
 
 /* 响应式设计 */

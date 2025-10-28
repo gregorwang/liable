@@ -35,7 +35,7 @@ export function useSSE(): UseSSEReturn {
       eventSource.value.onopen = () => {
         isConnected.value = true
         error.value = null
-        console.log('SSE connection established')
+        // SSE connection established
       }
 
       eventSource.value.onmessage = (event) => {
@@ -59,9 +59,9 @@ export function useSSE(): UseSSEReturn {
             })
           } else if (data.type === 'heartbeat') {
             // Heartbeat received, connection is alive
-            console.log('SSE heartbeat received')
+            // SSE heartbeat received
           } else if (data.type === 'connection') {
-            console.log('SSE connection confirmed:', data.data)
+            // SSE connection confirmed
           }
 
           // Call registered callbacks
@@ -85,7 +85,7 @@ export function useSSE(): UseSSEReturn {
         // Attempt to reconnect after 5 seconds
         setTimeout(() => {
           if (!isConnected.value) {
-            console.log('Attempting to reconnect SSE...')
+            // Attempting to reconnect SSE
             connect()
           }
         }, 5000)
@@ -104,7 +104,7 @@ export function useSSE(): UseSSEReturn {
     }
     isConnected.value = false
     error.value = null
-    console.log('SSE connection closed')
+    // SSE connection closed
   }
 
   const onMessage = (callback: (data: SSEMessageData) => void) => {

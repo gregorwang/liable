@@ -240,14 +240,6 @@ import RuleDialog from '@/components/RuleDialog.vue'
 import type { ModerationRule } from '@/types'
 import * as moderationApi from '@/api/moderation'
 
-interface ListResponse {
-  data: ModerationRule[]
-  total: number
-  page: number
-  page_size: number
-  total_pages: number
-}
-
 const allRules = ref<ModerationRule[]>([])
 const categories = ref<string[]>([])
 const loading = ref(false)
@@ -347,7 +339,7 @@ const fetchAllRules = async (useCache: boolean = true) => {
             allRules.value = parsed.data || []
             total.value = parsed.total || 0
             currentPage.value = 1
-            console.log(`📦 Loaded ${allRules.value.length} rules from cache (age: ${Math.round(cacheAge / 1000)}s)`)
+            // Loaded rules from cache
             return
           } catch (e) {
             console.warn('Failed to parse cached rules:', e)
@@ -367,7 +359,7 @@ const fetchAllRules = async (useCache: boolean = true) => {
     localStorage.setItem(cacheKey, JSON.stringify(response))
     localStorage.setItem(cacheTimestampKey, now.toString())
 
-    console.log(`✅ Fetched and cached ${allRules.value.length} rules from API`)
+    // Fetched and cached rules from API
   } catch (error) {
     ElMessage.error('加载规则失败')
     console.error(error)
@@ -381,8 +373,8 @@ const fetchCategories = async () => {
     const response = await request.get<{ categories: string[] }>(
       '/moderation-rules/categories'
     )
-    categories.value = response.categories || []
-    console.log(`✅ Loaded ${categories.value.length} categories`)
+    categories.value = response.data.categories || []
+    // Loaded categories
   } catch (error) {
     console.error('Failed to fetch categories:', error)
   }

@@ -88,13 +88,10 @@ const hasMore = computed(() => {
 
 onMounted(async () => {
   try {
-    console.log('📢 HistoryAnnouncements mounted, fetching notifications...')
     const result = await notificationStore.fetchRecent(pageSize, 0)
-    console.log('✅ Fetch result:', result)
-    console.log('📋 Notifications in store:', notificationStore.notifications)
     currentPage.value = 0
   } catch (error) {
-    console.error('❌ Failed to load notifications:', error)
+    console.error('Failed to load notifications:', error)
   }
 })
 
