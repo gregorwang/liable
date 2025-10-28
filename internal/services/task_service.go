@@ -9,24 +9,27 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 type TaskService struct {
-	taskRepo *repository.TaskRepository
-	tagRepo  *repository.TagRepository
-	rdb      *redis.Client
-	ctx      context.Context
+	taskRepo         *repository.TaskRepository
+	secondReviewRepo *repository.SecondReviewRepository
+	tagRepo          *repository.TagRepository
+	rdb              *redis.Client
+	ctx              context.Context
 }
 
 func NewTaskService() *TaskService {
 	return &TaskService{
-		taskRepo: repository.NewTaskRepository(),
-		tagRepo:  repository.NewTagRepository(),
-		rdb:      redispkg.Client,
-		ctx:      context.Background(),
+		taskRepo:         repository.NewTaskRepository(),
+		secondReviewRepo: repository.NewSecondReviewRepository(),
+		tagRepo:          repository.NewTagRepository(),
+		rdb:              redispkg.Client,
+		ctx:              context.Background(),
 	}
 }
 
@@ -103,6 +106,28 @@ func (s *TaskService) SubmitReview(reviewerID int, req models.SubmitReviewReques
 
 	if err := s.taskRepo.CreateReviewResult(result); err != nil {
 		return err
+	}
+
+	// If first review is not approved, create second review task
+	if !req.IsApproved {
+		// Get the comment ID from the task
+		tasks, err := s.taskRepo.FindTasksWithComments([]int{req.TaskID})
+		if err != nil {
+			log.Printf("Error getting comment ID for second review task: %v", err)
+		} else if len(tasks) > 0 {
+			commentID := tasks[0].CommentID
+
+			// Create second review task
+			if err := s.secondReviewRepo.CreateSecondReviewTask(result.ID, commentID); err != nil {
+				log.Printf("Error creating second review task: %v", err)
+			} else {
+				// Push to Redis second review queue
+				queueKey := "review:queue:second"
+				if err := s.rdb.LPush(s.ctx, queueKey, commentID).Err(); err != nil {
+					log.Printf("Redis error pushing to second review queue: %v", err)
+				}
+			}
+		}
 	}
 
 	// Remove from Redis
@@ -253,21 +278,71 @@ func (s *TaskService) SearchTasks(req models.SearchTasksRequest) (*models.Search
 		req.PageSize = 100
 	}
 
-	// Call repository to search tasks
-	results, total, err := s.taskRepo.SearchTasks(req)
-	if err != nil {
-		return nil, err
+	// Set default queue type
+	if req.QueueType == "" {
+		req.QueueType = "all"
+	}
+
+	var allResults []models.TaskSearchResult
+	var totalCount int
+
+	// Search first review tasks
+	if req.QueueType == "first" || req.QueueType == "all" {
+		firstResults, firstTotal, err := s.taskRepo.SearchTasks(req)
+		if err != nil {
+			return nil, err
+		}
+		allResults = append(allResults, firstResults...)
+		totalCount += firstTotal
+	}
+
+	// Search second review tasks
+	if req.QueueType == "second" || req.QueueType == "all" {
+		secondResults, secondTotal, err := s.secondReviewRepo.SearchSecondReviewTasks(req)
+		if err != nil {
+			return nil, err
+		}
+		allResults = append(allResults, secondResults...)
+		totalCount += secondTotal
+	}
+
+	// Sort combined results by completion time (most recent first)
+	// Note: This is a simple approach. For better performance with large datasets,
+	// consider implementing database-level sorting with UNION queries
+	sort.Slice(allResults, func(i, j int) bool {
+		if allResults[i].CompletedAt == nil && allResults[j].CompletedAt == nil {
+			return allResults[i].CreatedAt.After(allResults[j].CreatedAt)
+		}
+		if allResults[i].CompletedAt == nil {
+			return false
+		}
+		if allResults[j].CompletedAt == nil {
+			return true
+		}
+		return allResults[i].CompletedAt.After(*allResults[j].CompletedAt)
+	})
+
+	// Apply pagination to combined results
+	offset := (req.Page - 1) * req.PageSize
+	end := offset + req.PageSize
+	if end > len(allResults) {
+		end = len(allResults)
+	}
+	if offset >= len(allResults) {
+		allResults = []models.TaskSearchResult{}
+	} else {
+		allResults = allResults[offset:end]
 	}
 
 	// Calculate total pages
-	totalPages := total / req.PageSize
-	if total%req.PageSize > 0 {
+	totalPages := totalCount / req.PageSize
+	if totalCount%req.PageSize > 0 {
 		totalPages++
 	}
 
 	response := &models.SearchTasksResponse{
-		Data:       results,
-		Total:      total,
+		Data:       allResults,
+		Total:      totalCount,
 		Page:       req.Page,
 		PageSize:   req.PageSize,
 		TotalPages: totalPages,

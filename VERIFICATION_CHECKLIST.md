@@ -1,273 +1,195 @@
-# ✅ 完整验证检查清单
 
-## 🔧 代码更新检查
+# 评论二审系统实现方案
 
-### ✅ 已完成的更新
+## 1. 数据库设计
 
-- [x] **后端路由** (`cmd/api/main.go`)
-  - 添加公开端点: `GET /api/queues`
-  - 添加公开端点: `GET /api/queues/:id`
-  - 保留管理端点: `/api/admin/task-queues` (带权限验证)
+### 1.1 创建二审任务表和结果表
 
-- [x] **后端处理器** (`internal/handlers/admin.go`)
-  - `GetPublicQueues()` - 获取队列列表
-  - `GetPublicQueue()` - 获取单个队列
+使用Supabase MCP创建新的数据库表：
 
-- [x] **前端 API** (`frontend/src/api/admin.ts`)
-  - `listTaskQueuesPublic()` - 使用 `/queues` 路由
-  - `getTaskQueuePublic()` - 使用 `/queues/:id` 路由
+**second_review_tasks 表**（二审任务表）
 
-- [x] **前端组件** (`frontend/src/components/QueueList.vue`)
-  - 已改为使用 `listTaskQueuesPublic`
+- `id`: SERIAL PRIMARY KEY
+- `first_review_result_id`: INTEGER NOT NULL (关联 review_results.id)
+- `comment_id`: BIGINT NOT NULL (冗余字段，便于查询)
+- `reviewer_id`: INTEGER (关联 users.id)
+- `status`: VARCHAR(20) ('pending', 'in_progress', 'completed')
+- `claimed_at`: TIMESTAMP
+- `completed_at`: TIMESTAMP
+- `created_at`: TIMESTAMP DEFAULT NOW()
 
----
+**second_review_results 表**（二审结果表）
 
-## 🚀 后端验证
+- `id`: SERIAL PRIMARY KEY
+- `second_task_id`: INTEGER NOT NULL (关联 second_review_tasks.id)
+- `reviewer_id`: INTEGER NOT NULL (关联 users.id)
+- `is_approved`: BOOLEAN NOT NULL
+- `tags`: TEXT[]
+- `reason`: TEXT
+- `created_at`: TIMESTAMP DEFAULT NOW()
 
-### 步骤 1: 编译后端
+**索引创建**：
 
-```bash
-cd C:\Log\comment-review-platform
-go build -o comment-review-api.exe ./cmd/api/main.go
-```
+- `idx_second_review_tasks_status` ON second_review_tasks(status)
+- `idx_second_review_tasks_reviewer` ON second_review_tasks(reviewer_id)
+- `idx_second_review_results_task` ON second_review_results(second_task_id)
 
-**检查**：
-- [ ] 编译成功（无错误信息）
-- [ ] 生成了 `comment-review-api.exe` 文件
+## 2. 后端开发
 
-### 步骤 2: 启动后端
+### 2.1 更新数据模型 (`internal/models/models.go`)
 
-```bash
-.\comment-review-api.exe
-```
+添加新的模型结构：
 
-**检查**：
-- [ ] 看到 "Server starting on port 8080" 的消息
-- [ ] 没有错误日志
+```go
+type SecondReviewTask struct {
+    ID                  int
+    FirstReviewResultID int
+    CommentID           int64
+    ReviewerID          *int
+    Status              string
+    ClaimedAt           *time.Time
+    CompletedAt         *time.Time
+    CreatedAt           time.Time
+    Comment             *Comment
+    FirstReviewResult   *ReviewResult
+}
 
-### 步骤 3: 验证后端 API
+type SecondReviewResult struct {
+    ID            int
+    SecondTaskID  int
+    ReviewerID    int
+    IsApproved    bool
+    Tags          []string
+    Reason        string
+    CreatedAt     time.Time
+}
 
-**在新的终端或浏览器中运行**（无需认证）：
+// Request/Response DTOs
+type ClaimSecondReviewTasksRequest struct {
+    Count int `json:"count" binding:"required,min=1,max=50"`
+}
 
-```bash
-# 方式1: 浏览器
-http://localhost:8080/api/queues
-
-# 方式2: PowerShell
-curl http://localhost:8080/api/queues
-
-# 方式3: 带参数
-curl "http://localhost:8080/api/queues?page=1&page_size=20"
-```
-
-**预期响应**：
-```json
-{
-  "data": [...],
-  "total": ...,
-  "page": 1,
-  "page_size": 20,
-  "total_pages": ...
+type SubmitSecondReviewRequest struct {
+    TaskID     int      `json:"task_id" binding:"required"`
+    IsApproved bool     `json:"is_approved"`
+    Tags       []string `json:"tags"`
+    Reason     string   `json:"reason"`
 }
 ```
 
-**✅ 如果看到 JSON 数据，说明后端 API 工作正常！**
+### 2.2 创建二审仓储层 (`internal/repository/second_review_repo.go`)
 
----
+实现数据访问方法：
 
-## 🎨 前端验证
+- `CreateSecondReviewTask(firstReviewResultID, commentID int64) error`
+- `ClaimSecondReviewTasks(reviewerID, limit int) ([]SecondReviewTask, error)`
+- `GetMySecondReviewTasks(reviewerID int) ([]SecondReviewTask, error)`
+- `CompleteSecondReviewTask(taskID, reviewerID int) error`
+- `CreateSecondReviewResult(result *SecondReviewResult) error`
+- `ReturnSecondReviewTasks(taskIDs []int, reviewerID int) (int, error)`
 
-### 步骤 4: 启动前端开发服务
+### 2.3 更新任务服务 (`internal/services/task_service.go`)
 
-```bash
-cd C:\Log\comment-review-platform\frontend
-npm run dev
+修改 `SubmitReview` 方法，在一审结果为不通过时：
+
+1. 保存一审结果到 `review_results` 表
+2. 创建二审任务到 `second_review_tasks` 表
+3. 将comment_id推送到Redis二审队列 `review:queue:second`
+
+### 2.4 创建二审服务 (`internal/services/second_review_service.go`)
+
+实现完整的二审业务逻辑：
+
+- `ClaimSecondReviewTasks(reviewerID, count int) ([]SecondReviewTask, error)`
+  - 从数据库查询pending的二审任务
+  - 联表查询评论和一审结果信息
+  - Redis加锁（使用 `second_task:lock:{taskID}`）
+- `GetMySecondReviewTasks(reviewerID int) ([]SecondReviewTask, error)`
+- `SubmitSecondReview(reviewerID int, req SubmitSecondReviewRequest) error`
+  - 完成二审任务
+  - 保存二审结果到 `second_review_results` 表
+  - 清理Redis锁
+- `ReturnSecondReviewTasks(reviewerID int, taskIDs []int) (int, error)`
+
+### 2.5 创建二审处理器 (`internal/handlers/second_review_handler.go`)
+
+实现HTTP处理器：
+
+- `ClaimSecondReviewTasks(c *gin.Context)`
+- `GetMySecondReviewTasks(c *gin.Context)`
+- `SubmitSecondReview(c *gin.Context)`
+- `SubmitBatchSecondReviews(c *gin.Context)`
+- `ReturnSecondReviewTasks(c *gin.Context)`
+
+### 2.6 添加路由 (`cmd/api/main.go`)
+
+在 `/api/tasks` 组下添加二审端点：
+
+```go
+tasks.POST("/second-review/claim", secondReviewHandler.ClaimSecondReviewTasks)
+tasks.GET("/second-review/my", secondReviewHandler.GetMySecondReviewTasks)
+tasks.POST("/second-review/submit", secondReviewHandler.SubmitSecondReview)
+tasks.POST("/second-review/submit-batch", secondReviewHandler.SubmitBatchSecondReviews)
+tasks.POST("/second-review/return", secondReviewHandler.ReturnSecondReviewTasks)
 ```
 
-**检查**：
-- [ ] 看到 "Local: http://localhost:3000" 的消息
-- [ ] 没有编译错误
+## 3. Redis队列管理
 
-### 步骤 5: 在浏览器中打开前端
+### 3.1 Redis Key设计
+
+- 二审队列：`review:queue:second` (List类型)
+- 二审任务锁：`second_task:lock:{taskID}`
+- 审核员已领取：`second_task:claimed:{reviewerID}`
+
+### 3.2 队列操作
+
+- 一审不通过时：`LPUSH review:queue:second {comment_id}`
+- 领取二审任务：从数据库查询（不从Redis队列取）
+- 任务加锁：`SET second_task:lock:{taskID} {reviewerID} EX {timeout}`
+
+## 4. 数据流程
 
 ```
-http://localhost:3000
+一审提交(is_approved=false)
+  ↓
+保存到 review_results 表
+  ↓
+创建记录到 second_review_tasks 表(status='pending')
+  ↓
+推送到 Redis 队列 review:queue:second
+  ↓
+审核员调用 /api/tasks/second-review/claim
+  ↓
+从 second_review_tasks 查询 pending 任务
+  ↓
+联表查询 comment + review_results
+  ↓
+Redis加锁 second_task:lock:{taskID}
+  ↓
+审核员审核并提交
+  ↓
+保存到 second_review_results 表
+  ↓
+清理Redis锁
+  ↓
+完成
 ```
 
-**检查**：
-- [ ] 页面正常加载
-- [ ] 没有 404 或 403 错误
+## 5. 测试验证
 
-### 步骤 6: 测试队列列表页面
+### 5.1 数据库验证
 
-1. **访问队列列表页面**
-   ```
-   http://localhost:3000/test
-   ```
+- 确认表结构创建成功
+- 测试外键约束
 
-2. **打开浏览器开发工具** (F12)
+### 5.2 API测试
 
-3. **查看 Network 标签**
+- 一审提交不通过评论，验证二审任务生成
+- 领取二审任务，验证联表查询结果
+- 提交二审结果，验证数据保存
+- 测试任务返回功能
 
-4. **检查网络请求**
-   - 请求 URL: `http://localhost:3000/api/queues?page=1&page_size=20`
-   - 方法: `GET`
-   - **状态码应该是 200 OK**（不是 403）
-   - 响应应该包含队列数据
+### 5.3 Redis验证
 
-**✅ 如果状态码是 200，说明前端 API 调用正确！**
-
----
-
-## 📊 完整测试流程
-
-### 快速测试（3分钟）
-
-1. **后端**: 运行后端，访问 `http://localhost:8080/api/queues`
-2. **前端**: 运行前端，访问 `http://localhost:3000/test`
-3. **检查**: F12 开发工具，看网络请求状态
-
-### 详细测试（10分钟）
-
-```bash
-# 1. 启动后端
-.\comment-review-api.exe
-
-# 等待看到 "Server starting on port 8080"
-
-# 2. 在新终端启动前端
-cd frontend
-npm run dev
-
-# 等待看到 "Local: http://localhost:3000"
-
-# 3. 打开浏览器访问
-http://localhost:3000/test
-
-# 4. F12 打开开发工具，查看 Network 标签
-
-# 5. 刷新页面，观察请求
-```
-
----
-
-## ❌ 常见问题排除
-
-### 问题 1: 后端返回 404
-**症状**: 访问 `http://localhost:8080/api/queues` 返回 404
-
-**原因**: 后端编译或路由配置有问题
-
-**解决方案**:
-```bash
-# 重新编译
-go build -o comment-review-api.exe ./cmd/api/main.go
-
-# 确认 main.go 中有这两行
-# api.GET("/queues", taskQueueHandler.GetPublicQueues)
-# api.GET("/queues/:id", taskQueueHandler.GetPublicQueue)
-```
-
-### 问题 2: 前端返回 403 Forbidden
-**症状**: 浏览器 F12 -> Network 标签显示 `403 Forbidden`
-
-**可能原因**:
-- [ ] 前端还在调用旧的 API (`/api/admin/task-queues`)
-- [ ] 需要检查 `QueueList.vue` 是否已改为 `listTaskQueuesPublic`
-
-**解决方案**:
-```bash
-# 检查 QueueList.vue 第 184 行
-# 应该是: const response = await listTaskQueuesPublic({
-# 不应该是: const response = await listTaskQueues({
-
-# 如果改错了，改回来：
-# 1. 打开 frontend/src/components/QueueList.vue
-# 2. 第 143 行: import { listTaskQueuesPublic } from '../api/admin'
-# 3. 第 184 行: const response = await listTaskQueuesPublic({
-```
-
-### 问题 3: CORS 错误
-**症状**: 浏览器控制台显示 CORS 错误
-
-**解决方案**:
-- 确保后端 CORS 中间件已配置（在 `cmd/api/main.go` 中已配置）
-- 确保访问的是 `http://localhost:3000`，不是其他域名
-
-### 问题 4: 前端连接失败
-**症状**: 浏览器显示 "Cannot connect to server" 或 "Network error"
-
-**解决方案**:
-- [ ] 确保后端在 8080 端口运行
-- [ ] 确保前端代理配置正确 (vite.config.ts)
-- [ ] 尝试直接访问: `http://localhost:8080/api/queues`
-
----
-
-## 🎯 预期最终结果
-
-当一切配置正确时：
-
-1. **后端 API** ✅
-   ```
-   GET http://localhost:8080/api/queues → 200 OK + JSON 数据
-   ```
-
-2. **前端代理** ✅
-   ```
-   GET http://localhost:3000/api/queues → 代理到后端 → 200 OK + JSON 数据
-   ```
-
-3. **前端渲染** ✅
-   ```
-   队列列表页面正常显示队列数据
-   没有 404 或 403 错误
-   ```
-
----
-
-## 📝 检查清单
-
-启动前端后，F12 打开开发工具，刷新页面：
-
-- [ ] Network 标签看到请求 `/api/queues`
-- [ ] 该请求的状态码是 `200 OK`（不是 403）
-- [ ] Response 中包含 `data`, `total`, `page` 等字段
-- [ ] 页面上显示了队列表格数据
-- [ ] Console 中没有红色的错误信息
-
-**✅ 如果以上都通过，说明系统工作正常！**
-
----
-
-## 🚨 如果仍然返回 403
-
-请按照这个顺序检查：
-
-1. **检查前端是否已保存**
-   ```bash
-   cat frontend/src/components/QueueList.vue | grep -A 5 "const loadData"
-   # 应该看到 listTaskQueuesPublic
-   ```
-
-2. **检查前端是否已编译**
-   ```bash
-   # 停止并重启前端开发服务
-   npm run dev
-   ```
-
-3. **检查后端是否已编译新的二进制文件**
-   ```bash
-   go build -o comment-review-api.exe ./cmd/api/main.go
-   ```
-
-4. **检查后端路由**
-   ```bash
-   cat cmd/api/main.go | grep -A 2 "GET.*queues"
-   # 应该看到两行
-   ```
-
----
-
-**更新日期**: 2025-10-26  
-**关键点**: 使用新的公开 API `/api/queues` 代替需要权限的 `/api/admin/task-queues`
+- 验证任务锁创建和过期
+- 验证队列推送和统计

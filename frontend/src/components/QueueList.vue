@@ -141,7 +141,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { listTaskQueuesPublic } from '../api/admin'
-import type { TaskQueue } from '../api/admin'
+import type { TaskQueue } from '../types'
 
 const router = useRouter()
 
@@ -201,9 +201,16 @@ const handleRefresh = () => {
 }
 
 const handleAnnotate = (row: TaskQueue) => {
-  // 跳转到审核员工作台，携带队列信息
+  // 根据队列类型跳转到不同的审核界面
   sessionStorage.setItem('currentQueue', JSON.stringify(row))
-  router.push('/reviewer/dashboard')
+  
+  // 根据队列名称判断跳转到哪个审核界面
+  if (row.queue_name === '评论审核二审') {
+    router.push('/reviewer/second-review')
+  } else {
+    // 其他队列（包括一审队列）跳转到通用的一审审核界面
+    router.push('/reviewer/dashboard')
+  }
 }
 
 const handleViewDetails = (row: TaskQueue) => {

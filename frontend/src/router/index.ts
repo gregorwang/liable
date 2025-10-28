@@ -95,6 +95,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
+      path: '/reviewer/second-review',
+      name: 'SecondReviewDashboard',
+      component: () => import('../views/reviewer/SecondReviewDashboard.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
       path: '/admin',
       redirect: '/main/queue-list',
       meta: { requiresAuth: true, role: 'admin' },
@@ -145,7 +151,7 @@ const router = createRouter({
 })
 
 // Navigation guard
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   const token = getToken()
   const user = getUser()
 

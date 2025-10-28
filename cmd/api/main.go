@@ -88,6 +88,7 @@ func setupRouter(db interface{}) *gin.Engine {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler()
 	taskHandler := handlers.NewTaskHandler()
+	secondReviewHandler := handlers.NewSecondReviewHandler()
 	adminHandler := handlers.NewAdminHandler()
 
 	// Type assert database connection
@@ -132,6 +133,13 @@ func setupRouter(db interface{}) *gin.Engine {
 			tasks.POST("/submit", taskHandler.SubmitReview)
 			tasks.POST("/submit-batch", taskHandler.SubmitBatchReviews)
 			tasks.POST("/return", taskHandler.ReturnTasks)
+
+			// Second review routes
+			tasks.POST("/second-review/claim", secondReviewHandler.ClaimSecondReviewTasks)
+			tasks.GET("/second-review/my", secondReviewHandler.GetMySecondReviewTasks)
+			tasks.POST("/second-review/submit", secondReviewHandler.SubmitSecondReview)
+			tasks.POST("/second-review/submit-batch", secondReviewHandler.SubmitBatchSecondReviews)
+			tasks.POST("/second-review/return", secondReviewHandler.ReturnSecondReviewTasks)
 		}
 
 		// Search route (requires login, available for both admin and reviewer)
@@ -213,6 +221,7 @@ func initializeDefaultData() error {
 
 func startTaskReleaseWorker() {
 	taskService := services.NewTaskService()
+	secondReviewService := services.NewSecondReviewService()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -221,6 +230,9 @@ func startTaskReleaseWorker() {
 	for range ticker.C {
 		if err := taskService.ReleaseExpiredTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired tasks: %v", err)
+		}
+		if err := secondReviewService.ReleaseExpiredSecondReviewTasks(); err != nil {
+			log.Printf("⚠️ Error releasing expired second review tasks: %v", err)
 		}
 	}
 }

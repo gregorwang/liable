@@ -150,6 +150,7 @@ export interface SearchTasksRequest {
   tag_ids?: string
   review_start_time?: string
   review_end_time?: string
+  queue_type?: 'first' | 'second' | 'all'
   page?: number
   page_size?: number
 }
@@ -164,11 +165,28 @@ export interface TaskSearchResult {
   claimed_at: string | null
   completed_at: string | null
   created_at: string
+  queue_type: 'first' | 'second'
+  
+  // First review result fields (if available)
   review_id: number | null
   is_approved: boolean | null
   tags: string[]
   reason: string | null
   reviewed_at: string | null
+  
+  // Second review specific fields (only for second review tasks)
+  second_review_id?: number | null
+  second_is_approved?: boolean | null
+  second_tags?: string[]
+  second_reason?: string | null
+  second_reviewed_at?: string | null
+  second_reviewer_id?: number | null
+  second_username?: string | null
+  
+  // First review info for second review tasks
+  first_reviewer_id?: number | null
+  first_username?: string | null
+  first_review_reason?: string | null
 }
 
 export interface SearchTasksResponse {
@@ -219,6 +237,84 @@ export interface QueueTask {
 
 export interface QueueListResponse {
   data: QueueTask[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+// Second Review types
+export interface SecondReviewTask {
+  id: number
+  first_review_result_id: number
+  comment_id: number
+  reviewer_id: number | null
+  status: 'pending' | 'in_progress' | 'completed'
+  claimed_at: string | null
+  completed_at: string | null
+  created_at: string
+  comment?: Comment
+  first_review_result?: FirstReviewResult
+}
+
+export interface FirstReviewResult {
+  id: number
+  task_id: number
+  reviewer_id: number
+  is_approved: boolean
+  tags: string[]
+  reason: string
+  created_at: string
+  reviewer?: {
+    id: number
+    username: string
+  }
+}
+
+export interface SecondReviewResult {
+  id: number
+  second_task_id: number
+  reviewer_id: number
+  is_approved: boolean
+  tags: string[]
+  reason: string
+  created_at: string
+}
+
+export interface ClaimSecondReviewTasksRequest {
+  count: number
+}
+
+export interface SubmitSecondReviewRequest {
+  task_id: number
+  is_approved: boolean
+  tags: string[]
+  reason: string
+}
+
+export interface SecondReviewTasksResponse {
+  tasks: SecondReviewTask[]
+  count: number
+}
+
+// Task Queue types
+export interface TaskQueue {
+  id: number
+  queue_name: string
+  description: string
+  priority: number
+  total_tasks: number
+  completed_tasks: number
+  pending_tasks: number
+  is_active: boolean
+  created_by?: number
+  updated_by?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ListTaskQueuesResponse {
+  data: TaskQueue[]
   total: number
   page: number
   page_size: number

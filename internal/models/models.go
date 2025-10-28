@@ -40,6 +40,7 @@ type ReviewResult struct {
 	Tags       []string  `json:"tags"`
 	Reason     string    `json:"reason"`
 	CreatedAt  time.Time `json:"created_at"`
+	Reviewer   *User     `json:"reviewer,omitempty"` // Optional joined data
 }
 
 // TagConfig represents a violation tag configuration
@@ -150,6 +151,7 @@ type SearchTasksRequest struct {
 	TagIDs          string  `form:"tag_ids"`           // 违规标签ID，逗号分隔
 	ReviewStartTime *string `form:"review_start_time"` // 审核开始时间
 	ReviewEndTime   *string `form:"review_end_time"`   // 审核结束时间
+	QueueType       string  `form:"queue_type"`        // 队列类型：first/second/all
 	Page            int     `form:"page"`              // 页码，默认1
 	PageSize        int     `form:"page_size"`         // 每页数量，默认10
 }
@@ -165,12 +167,28 @@ type TaskSearchResult struct {
 	ClaimedAt   *time.Time `json:"claimed_at"`
 	CompletedAt *time.Time `json:"completed_at"`
 	CreatedAt   time.Time  `json:"created_at"`
-	// Review result fields (if available)
+	QueueType   string     `json:"queue_type"` // "first" or "second"
+
+	// First review result fields (if available)
 	ReviewID   *int       `json:"review_id,omitempty"`
 	IsApproved *bool      `json:"is_approved,omitempty"`
 	Tags       []string   `json:"tags,omitempty"`
 	Reason     *string    `json:"reason,omitempty"`
 	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
+
+	// Second review specific fields (only for second review tasks)
+	SecondReviewID   *int       `json:"second_review_id,omitempty"`
+	SecondIsApproved *bool      `json:"second_is_approved,omitempty"`
+	SecondTags       []string   `json:"second_tags,omitempty"`
+	SecondReason     *string    `json:"second_reason,omitempty"`
+	SecondReviewedAt *time.Time `json:"second_reviewed_at,omitempty"`
+	SecondReviewerID *int       `json:"second_reviewer_id,omitempty"`
+	SecondUsername   *string    `json:"second_username,omitempty"`
+
+	// First review info for second review tasks
+	FirstReviewerID   *int    `json:"first_reviewer_id,omitempty"`
+	FirstUsername     *string `json:"first_username,omitempty"`
+	FirstReviewReason *string `json:"first_review_reason,omitempty"`
 }
 
 // SearchTasksResponse for paginated search results
@@ -322,4 +340,57 @@ type SSEMessage struct {
 type BroadcastMessage struct {
 	UserID  int        `json:"user_id,omitempty"` // If empty, broadcast to all
 	Message SSEMessage `json:"message"`
+}
+
+// Second Review Models
+
+// SecondReviewTask represents a second review task
+type SecondReviewTask struct {
+	ID                  int           `json:"id"`
+	FirstReviewResultID int           `json:"first_review_result_id"`
+	CommentID           int64         `json:"comment_id"`
+	ReviewerID          *int          `json:"reviewer_id"`
+	Status              string        `json:"status"` // "pending", "in_progress", "completed"
+	ClaimedAt           *time.Time    `json:"claimed_at"`
+	CompletedAt         *time.Time    `json:"completed_at"`
+	CreatedAt           time.Time     `json:"created_at"`
+	Comment             *Comment      `json:"comment,omitempty"`             // Optional joined data
+	FirstReviewResult   *ReviewResult `json:"first_review_result,omitempty"` // Optional joined data
+}
+
+// SecondReviewResult represents the result of a second review
+type SecondReviewResult struct {
+	ID           int       `json:"id"`
+	SecondTaskID int       `json:"second_task_id"`
+	ReviewerID   int       `json:"reviewer_id"`
+	IsApproved   bool      `json:"is_approved"`
+	Tags         []string  `json:"tags"`
+	Reason       string    `json:"reason"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Request/Response DTOs for Second Review
+
+type ClaimSecondReviewTasksRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=50"`
+}
+
+type ClaimSecondReviewTasksResponse struct {
+	Tasks []SecondReviewTask `json:"tasks"`
+	Count int                `json:"count"`
+}
+
+type SubmitSecondReviewRequest struct {
+	TaskID     int      `json:"task_id" binding:"required"`
+	IsApproved bool     `json:"is_approved"`
+	Tags       []string `json:"tags"`
+	Reason     string   `json:"reason"`
+}
+
+type BatchSubmitSecondReviewRequest struct {
+	Reviews []SubmitSecondReviewRequest `json:"reviews" binding:"required,dive"`
+}
+
+type ReturnSecondReviewTasksRequest struct {
+	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
 }

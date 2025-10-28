@@ -1,7 +1,7 @@
 /**
  * Format date string
  */
-export function formatDate(dateStr: string): string {
+export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return ''
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN', {

@@ -6,6 +6,8 @@ import type {
   HourlyStats,
   TagStats,
   ReviewerPerformance,
+  TaskQueue,
+  ListTaskQueuesResponse,
 } from '../types'
 
 /**
@@ -88,29 +90,6 @@ export function deleteTag(tagId: number) {
 }
 
 // ==================== Task Queue Management ====================
-
-export interface TaskQueue {
-  id: number
-  queue_name: string
-  description: string
-  priority: number
-  total_tasks: number
-  completed_tasks: number
-  pending_tasks: number
-  is_active: boolean
-  created_by?: number
-  updated_by?: number
-  created_at: string
-  updated_at: string
-}
-
-export interface ListTaskQueuesResponse {
-  data: TaskQueue[]
-  total: number
-  page: number
-  page_size: number
-  total_pages: number
-}
 
 // Create task queue
 export async function createTaskQueue(payload: {

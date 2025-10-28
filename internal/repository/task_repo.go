@@ -333,7 +333,8 @@ func (r *TaskRepository) SearchTasks(req models.SearchTasksRequest) ([]models.Ta
 			rt.id, rt.comment_id, c.text as comment_text,
 			rt.reviewer_id, u.username,
 			rt.status, rt.claimed_at, rt.completed_at, rt.created_at,
-			rr.id as review_id, rr.is_approved, rr.tags, rr.reason, rr.created_at as reviewed_at
+			rr.id as review_id, rr.is_approved, rr.tags, rr.reason, rr.created_at as reviewed_at,
+			'first' as queue_type
 		FROM review_tasks rt
 		LEFT JOIN review_results rr ON rt.id = rr.task_id
 		LEFT JOIN users u ON rt.reviewer_id = u.id
@@ -358,6 +359,7 @@ func (r *TaskRepository) SearchTasks(req models.SearchTasksRequest) ([]models.Ta
 			&result.ReviewerID, &result.Username,
 			&result.Status, &result.ClaimedAt, &result.CompletedAt, &result.CreatedAt,
 			&result.ReviewID, &result.IsApproved, pq.Array(&result.Tags), &result.Reason, &result.ReviewedAt,
+			&result.QueueType,
 		)
 		if err != nil {
 			return nil, 0, err
