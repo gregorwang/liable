@@ -675,3 +675,66 @@ type GenerateVideoURLResponse struct {
 	VideoURL  string    `json:"video_url"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
+
+// Permission System Models
+
+// Permission represents a permission definition
+type Permission struct {
+	ID            int       `json:"id"`
+	PermissionKey string    `json:"permission_key"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	Resource      string    `json:"resource"`
+	Action        string    `json:"action"`
+	Category      string    `json:"category"`
+	IsActive      bool      `json:"is_active"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// UserPermission represents user-permission relationship
+type UserPermission struct {
+	ID            int       `json:"id"`
+	UserID        int       `json:"user_id"`
+	PermissionKey string    `json:"permission_key"`
+	GrantedAt     time.Time `json:"granted_at"`
+	GrantedBy     *int      `json:"granted_by,omitempty"`
+}
+
+// Permission management DTOs
+
+type GrantPermissionRequest struct {
+	UserID         int      `json:"user_id" binding:"required"`
+	PermissionKeys []string `json:"permission_keys" binding:"required,min=1"`
+}
+
+type RevokePermissionRequest struct {
+	UserID         int      `json:"user_id" binding:"required"`
+	PermissionKeys []string `json:"permission_keys" binding:"required,min=1"`
+}
+
+type ListUserPermissionsRequest struct {
+	UserID   int    `form:"user_id"`
+	Category string `form:"category"`
+}
+
+type ListPermissionsRequest struct {
+	Resource string `form:"resource"`
+	Category string `form:"category"`
+	Search   string `form:"search"`
+	Page     int    `form:"page"`
+	PageSize int    `form:"page_size"`
+}
+
+type ListPermissionsResponse struct {
+	Data       []Permission `json:"data"`
+	Total      int          `json:"total"`
+	Page       int          `json:"page"`
+	PageSize   int          `json:"page_size"`
+	TotalPages int          `json:"total_pages"`
+}
+
+type UserPermissionsResponse struct {
+	UserID      int      `json:"user_id"`
+	Permissions []string `json:"permissions"`
+}

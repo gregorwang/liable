@@ -165,6 +165,11 @@
                 <el-icon><Upload /></el-icon>
                 <template #title>视频导入</template>
               </el-menu-item>
+              
+              <el-menu-item index="permission-management">
+                <el-icon><Key /></el-icon>
+                <template #title>权限管理</template>
+              </el-menu-item>
             </el-sub-menu>
           </template>
           
@@ -218,7 +223,8 @@ import {
   VideoPlay,
   VideoCamera,
   VideoCameraFilled,
-  Upload
+  Upload,
+  Key
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { useNotificationStore } from '../stores/notification'
@@ -251,6 +257,7 @@ const asyncComponents: Record<string, any> = {
   'admin-tag-management': defineAsyncComponent(() => import('../views/admin/TagManage.vue')),
   'admin-queue-management': defineAsyncComponent(() => import('../views/admin/QueueManage.vue')),
   'admin-video-import': defineAsyncComponent(() => import('../views/admin/VideoImport.vue')),
+  'permission-management': defineAsyncComponent(() => import('../views/admin/PermissionManage.vue')),
   
   // 视频审核组件
   'video-first-review': defineAsyncComponent(() => import('../views/reviewer/VideoFirstReviewDashboard.vue')),

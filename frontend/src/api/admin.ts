@@ -18,6 +18,13 @@ export function getPendingUsers() {
 }
 
 /**
+ * Get all users (for permission management)
+ */
+export function getAllUsers() {
+  return request.get<any, { users: User[] }>('/admin/users/all')
+}
+
+/**
  * Approve or reject user
  */
 export function approveUser(userId: number, status: 'approved' | 'rejected') {

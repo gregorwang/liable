@@ -23,6 +23,11 @@ func (s *AdminService) GetPendingUsers() ([]models.User, error) {
 	return s.userRepo.FindPendingUsers()
 }
 
+// GetAllUsers retrieves all users (for permission management)
+func (s *AdminService) GetAllUsers() ([]models.User, error) {
+	return s.userRepo.FindAllUsers()
+}
+
 // ApproveUser approves or rejects a user
 func (s *AdminService) ApproveUser(userID int, status string) error {
 	return s.userRepo.UpdateStatus(userID, status)

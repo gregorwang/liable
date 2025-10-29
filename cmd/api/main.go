@@ -136,60 +136,61 @@ func setupRouter(db interface{}) *gin.Engine {
 			modRules.GET("/risk-levels", moderationRulesHandler.GetRiskLevels)
 		}
 
-		// Task routes (requires reviewer role)
+		// Task routes (requires specific queue permissions)
 		tasks := api.Group("/tasks")
-		tasks.Use(middleware.AuthMiddleware(), middleware.RequireReviewer())
+		tasks.Use(middleware.AuthMiddleware())
 		{
-			tasks.POST("/claim", taskHandler.ClaimTasks)
-			tasks.GET("/my", taskHandler.GetMyTasks)
-			tasks.POST("/submit", taskHandler.SubmitReview)
-			tasks.POST("/submit-batch", taskHandler.SubmitBatchReviews)
-			tasks.POST("/return", taskHandler.ReturnTasks)
+			// First review (comment review) routes
+			tasks.POST("/claim", middleware.RequirePermission("tasks:first-review:claim"), taskHandler.ClaimTasks)
+			tasks.GET("/my", middleware.RequireAnyPermission("tasks:first-review:claim", "tasks:second-review:claim", "tasks:quality-check:claim", "tasks:video-first-review:claim", "tasks:video-second-review:claim"), taskHandler.GetMyTasks)
+			tasks.POST("/submit", middleware.RequirePermission("tasks:first-review:submit"), taskHandler.SubmitReview)
+			tasks.POST("/submit-batch", middleware.RequirePermission("tasks:first-review:submit"), taskHandler.SubmitBatchReviews)
+			tasks.POST("/return", middleware.RequirePermission("tasks:first-review:return"), taskHandler.ReturnTasks)
 
 			// Second review routes
-			tasks.POST("/second-review/claim", secondReviewHandler.ClaimSecondReviewTasks)
-			tasks.GET("/second-review/my", secondReviewHandler.GetMySecondReviewTasks)
-			tasks.POST("/second-review/submit", secondReviewHandler.SubmitSecondReview)
-			tasks.POST("/second-review/submit-batch", secondReviewHandler.SubmitBatchSecondReviews)
-			tasks.POST("/second-review/return", secondReviewHandler.ReturnSecondReviewTasks)
+			tasks.POST("/second-review/claim", middleware.RequirePermission("tasks:second-review:claim"), secondReviewHandler.ClaimSecondReviewTasks)
+			tasks.GET("/second-review/my", middleware.RequirePermission("tasks:second-review:claim"), secondReviewHandler.GetMySecondReviewTasks)
+			tasks.POST("/second-review/submit", middleware.RequirePermission("tasks:second-review:submit"), secondReviewHandler.SubmitSecondReview)
+			tasks.POST("/second-review/submit-batch", middleware.RequirePermission("tasks:second-review:submit"), secondReviewHandler.SubmitBatchSecondReviews)
+			tasks.POST("/second-review/return", middleware.RequirePermission("tasks:second-review:return"), secondReviewHandler.ReturnSecondReviewTasks)
 
 			// Quality check routes
-			tasks.POST("/quality-check/claim", qualityCheckHandler.ClaimQCTasks)
-			tasks.GET("/quality-check/my", qualityCheckHandler.GetMyQCTasks)
-			tasks.POST("/quality-check/submit", qualityCheckHandler.SubmitQCReview)
-			tasks.POST("/quality-check/submit-batch", qualityCheckHandler.SubmitBatchQCReviews)
-			tasks.POST("/quality-check/return", qualityCheckHandler.ReturnQCTasks)
-			tasks.GET("/quality-check/stats", qualityCheckHandler.GetQCStats)
+			tasks.POST("/quality-check/claim", middleware.RequirePermission("tasks:quality-check:claim"), qualityCheckHandler.ClaimQCTasks)
+			tasks.GET("/quality-check/my", middleware.RequirePermission("tasks:quality-check:claim"), qualityCheckHandler.GetMyQCTasks)
+			tasks.POST("/quality-check/submit", middleware.RequirePermission("tasks:quality-check:submit"), qualityCheckHandler.SubmitQCReview)
+			tasks.POST("/quality-check/submit-batch", middleware.RequirePermission("tasks:quality-check:submit"), qualityCheckHandler.SubmitBatchQCReviews)
+			tasks.POST("/quality-check/return", middleware.RequirePermission("tasks:quality-check:return"), qualityCheckHandler.ReturnQCTasks)
+			tasks.GET("/quality-check/stats", middleware.RequirePermission("tasks:quality-check:stats"), qualityCheckHandler.GetQCStats)
 
 			// Video review routes (if video handler is available)
 			if videoHandler != nil {
 				// Video first review routes
-				tasks.POST("/video-first-review/claim", videoHandler.ClaimVideoFirstReviewTasks)
-				tasks.GET("/video-first-review/my", videoHandler.GetMyVideoFirstReviewTasks)
-				tasks.POST("/video-first-review/submit", videoHandler.SubmitVideoFirstReview)
-				tasks.POST("/video-first-review/submit-batch", videoHandler.SubmitBatchVideoFirstReviews)
-				tasks.POST("/video-first-review/return", videoHandler.ReturnVideoFirstReviewTasks)
+				tasks.POST("/video-first-review/claim", middleware.RequirePermission("tasks:video-first-review:claim"), videoHandler.ClaimVideoFirstReviewTasks)
+				tasks.GET("/video-first-review/my", middleware.RequirePermission("tasks:video-first-review:claim"), videoHandler.GetMyVideoFirstReviewTasks)
+				tasks.POST("/video-first-review/submit", middleware.RequirePermission("tasks:video-first-review:submit"), videoHandler.SubmitVideoFirstReview)
+				tasks.POST("/video-first-review/submit-batch", middleware.RequirePermission("tasks:video-first-review:submit"), videoHandler.SubmitBatchVideoFirstReviews)
+				tasks.POST("/video-first-review/return", middleware.RequirePermission("tasks:video-first-review:return"), videoHandler.ReturnVideoFirstReviewTasks)
 
 				// Video second review routes
-				tasks.POST("/video-second-review/claim", videoHandler.ClaimVideoSecondReviewTasks)
-				tasks.GET("/video-second-review/my", videoHandler.GetMyVideoSecondReviewTasks)
-				tasks.POST("/video-second-review/submit", videoHandler.SubmitVideoSecondReview)
-				tasks.POST("/video-second-review/submit-batch", videoHandler.SubmitBatchVideoSecondReviews)
-				tasks.POST("/video-second-review/return", videoHandler.ReturnVideoSecondReviewTasks)
+				tasks.POST("/video-second-review/claim", middleware.RequirePermission("tasks:video-second-review:claim"), videoHandler.ClaimVideoSecondReviewTasks)
+				tasks.GET("/video-second-review/my", middleware.RequirePermission("tasks:video-second-review:claim"), videoHandler.GetMyVideoSecondReviewTasks)
+				tasks.POST("/video-second-review/submit", middleware.RequirePermission("tasks:video-second-review:submit"), videoHandler.SubmitVideoSecondReview)
+				tasks.POST("/video-second-review/submit-batch", middleware.RequirePermission("tasks:video-second-review:submit"), videoHandler.SubmitBatchVideoSecondReviews)
+				tasks.POST("/video-second-review/return", middleware.RequirePermission("tasks:video-second-review:return"), videoHandler.ReturnVideoSecondReviewTasks)
 			}
 		}
 
-		// Search route (requires login, available for both admin and reviewer)
-		api.GET("/tasks/search", middleware.AuthMiddleware(), taskHandler.SearchTasks)
+		// Search route (requires search permission)
+		api.GET("/tasks/search", middleware.AuthMiddleware(), middleware.RequirePermission("tasks:search"), taskHandler.SearchTasks)
 
-		// Tag routes (public for reviewers)
-		api.GET("/tags", middleware.AuthMiddleware(), taskHandler.GetActiveTags)
+		// Tag routes (public for reviewers - requires any task permission)
+		api.GET("/tags", middleware.AuthMiddleware(), middleware.RequireAnyPermission("tasks:first-review:claim", "tasks:second-review:claim", "tasks:quality-check:claim", "tasks:video-first-review:claim", "tasks:video-second-review:claim"), taskHandler.GetActiveTags)
 
 		// Video quality tags route (if video handler is available)
 		if videoHandler != nil {
-			api.GET("/video-quality-tags", middleware.AuthMiddleware(), videoHandler.GetVideoQualityTags)
-			// Video URL generation - available for both admin and reviewer
-			api.POST("/admin/videos/generate-url", middleware.AuthMiddleware(), middleware.RequireAdminOrReviewer(), videoHandler.GenerateVideoURL)
+			api.GET("/video-quality-tags", middleware.AuthMiddleware(), middleware.RequireAnyPermission("tasks:video-first-review:claim", "tasks:video-second-review:claim"), videoHandler.GetVideoQualityTags)
+			// Video URL generation - available for users with video permissions
+			api.POST("/admin/videos/generate-url", middleware.AuthMiddleware(), middleware.RequireAnyPermission("videos:generate-url", "tasks:video-first-review:claim", "tasks:video-second-review:claim"), videoHandler.GenerateVideoURL)
 			// Test endpoint for data structure validation (no auth required)
 			api.POST("/test/video-review-structure", videoHandler.TestVideoReviewDataStructure)
 		}
@@ -216,43 +217,52 @@ func setupRouter(db interface{}) *gin.Engine {
 		admin := api.Group("/admin")
 		admin.Use(middleware.AuthMiddleware(), middleware.RequireAdmin())
 		{
+			// Permission management (requires permission management permissions)
+			// Note: More specific routes must be registered before generic ones
+			admin.GET("/permissions/all", middleware.RequirePermission("permissions:read"), adminHandler.GetAllPermissions)
+			admin.GET("/permissions/user", middleware.RequirePermission("permissions:read"), adminHandler.GetUserPermissions)
+			admin.GET("/permissions", middleware.RequirePermission("permissions:read"), adminHandler.ListPermissions)
+			admin.POST("/permissions/grant", middleware.RequirePermission("permissions:grant"), adminHandler.GrantPermissions)
+			admin.POST("/permissions/revoke", middleware.RequirePermission("permissions:revoke"), adminHandler.RevokePermissions)
+
 			// User management
-			admin.GET("/users", adminHandler.GetPendingUsers)
-			admin.PUT("/users/:id/approve", adminHandler.ApproveUser)
+			admin.GET("/users", middleware.RequirePermission("users:list"), adminHandler.GetPendingUsers)
+			admin.GET("/users/all", middleware.RequirePermission("users:list"), adminHandler.GetAllUsers)
+			admin.PUT("/users/:id/approve", middleware.RequirePermission("users:approve"), adminHandler.ApproveUser)
 
 			// Statistics
-			admin.GET("/stats/overview", adminHandler.GetOverviewStats)
-			admin.GET("/stats/hourly", adminHandler.GetHourlyStats)
-			admin.GET("/stats/tags", adminHandler.GetTagStats)
-			admin.GET("/stats/reviewers", adminHandler.GetReviewerPerformance)
+			admin.GET("/stats/overview", middleware.RequirePermission("stats:overview"), adminHandler.GetOverviewStats)
+			admin.GET("/stats/hourly", middleware.RequirePermission("stats:hourly"), adminHandler.GetHourlyStats)
+			admin.GET("/stats/tags", middleware.RequirePermission("stats:tags"), adminHandler.GetTagStats)
+			admin.GET("/stats/reviewers", middleware.RequirePermission("stats:reviewers"), adminHandler.GetReviewerPerformance)
 
 			// Tag management
-			admin.GET("/tags", adminHandler.GetAllTags)
-			admin.POST("/tags", adminHandler.CreateTag)
-			admin.PUT("/tags/:id", adminHandler.UpdateTag)
-			admin.DELETE("/tags/:id", adminHandler.DeleteTag)
+			admin.GET("/tags", middleware.RequirePermission("tags:list"), adminHandler.GetAllTags)
+			admin.POST("/tags", middleware.RequirePermission("tags:create"), adminHandler.CreateTag)
+			admin.PUT("/tags/:id", middleware.RequirePermission("tags:update"), adminHandler.UpdateTag)
+			admin.DELETE("/tags/:id", middleware.RequirePermission("tags:delete"), adminHandler.DeleteTag)
 
 			// Moderation Rules management
-			admin.POST("/moderation-rules", moderationRulesHandler.CreateRule)
-			admin.PUT("/moderation-rules/:id", moderationRulesHandler.UpdateRule)
-			admin.DELETE("/moderation-rules/:id", moderationRulesHandler.DeleteRule)
+			admin.POST("/moderation-rules", middleware.RequirePermission("moderation-rules:create"), moderationRulesHandler.CreateRule)
+			admin.PUT("/moderation-rules/:id", middleware.RequirePermission("moderation-rules:update"), moderationRulesHandler.UpdateRule)
+			admin.DELETE("/moderation-rules/:id", middleware.RequirePermission("moderation-rules:delete"), moderationRulesHandler.DeleteRule)
 
 			// Task Queue management (队列配置)
-			admin.POST("/task-queues", taskQueueHandler.CreateTaskQueue)
-			admin.GET("/task-queues", taskQueueHandler.ListTaskQueues)
-			admin.GET("/task-queues/:id", taskQueueHandler.GetTaskQueue)
-			admin.PUT("/task-queues/:id", taskQueueHandler.UpdateTaskQueue)
-			admin.DELETE("/task-queues/:id", taskQueueHandler.DeleteTaskQueue)
-			admin.GET("/task-queues-all", taskQueueHandler.GetAllTaskQueues)
+			admin.POST("/task-queues", middleware.RequirePermission("task-queues:create"), taskQueueHandler.CreateTaskQueue)
+			admin.GET("/task-queues", middleware.RequirePermission("task-queues:list"), taskQueueHandler.ListTaskQueues)
+			admin.GET("/task-queues/:id", middleware.RequirePermission("task-queues:list"), taskQueueHandler.GetTaskQueue)
+			admin.PUT("/task-queues/:id", middleware.RequirePermission("task-queues:update"), taskQueueHandler.UpdateTaskQueue)
+			admin.DELETE("/task-queues/:id", middleware.RequirePermission("task-queues:delete"), taskQueueHandler.DeleteTaskQueue)
+			admin.GET("/task-queues-all", middleware.RequirePermission("task-queues:list"), taskQueueHandler.GetAllTaskQueues)
 
 			// Notification management (admin only)
-			admin.POST("/notifications", notificationHandler.CreateNotification)
+			admin.POST("/notifications", middleware.RequirePermission("notifications:create"), notificationHandler.CreateNotification)
 
 			// Video management (if video handler is available)
 			if videoHandler != nil {
-				admin.POST("/videos/import", videoHandler.ImportVideos)
-				admin.GET("/videos", videoHandler.ListVideos)
-				admin.GET("/videos/:id", videoHandler.GetVideo)
+				admin.POST("/videos/import", middleware.RequirePermission("videos:import"), videoHandler.ImportVideos)
+				admin.GET("/videos", middleware.RequirePermission("videos:list"), videoHandler.ListVideos)
+				admin.GET("/videos/:id", middleware.RequirePermission("videos:read"), videoHandler.GetVideo)
 			}
 		}
 	}

@@ -87,6 +87,30 @@ func (r *UserRepository) FindPendingUsers() ([]models.User, error) {
 	return users, nil
 }
 
+// FindAllUsers returns all users (for permission management)
+func (r *UserRepository) FindAllUsers() ([]models.User, error) {
+	query := `
+		SELECT id, username, role, status, created_at, updated_at
+		FROM users
+		ORDER BY id ASC
+	`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := []models.User{}
+	for rows.Next() {
+		var user models.User
+		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.Status, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
+
 // UpdateStatus updates user status
 func (r *UserRepository) UpdateStatus(id int, status string) error {
 	query := `
@@ -98,16 +122,16 @@ func (r *UserRepository) UpdateStatus(id int, status string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	
+
 	if rowsAffected == 0 {
 		return errors.New("user not found")
 	}
-	
+
 	return nil
 }
 
@@ -130,4 +154,3 @@ func (r *UserRepository) CountActiveReviewers() (int, error) {
 	err := r.db.QueryRow(query).Scan(&count)
 	return count, err
 }
-

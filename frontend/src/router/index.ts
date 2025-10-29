@@ -74,6 +74,11 @@ const router = createRouter({
           name: 'RuleDocumentation',
           component: () => import('../views/admin/ModerationRules.vue'),
         },
+        {
+          path: 'permission-management',
+          name: 'PermissionManagement',
+          component: () => import('../views/admin/PermissionManage.vue'),
+        },
       ],
     },
     // 保留原有的独立路由用于兼容
@@ -169,6 +174,12 @@ const router = createRouter({
       path: '/admin/queue-manage',
       name: 'QueueManage',
       component: () => import('../views/admin/QueueManage.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
+      path: '/admin/permissions',
+      name: 'PermissionManage',
+      component: () => import('../views/admin/PermissionManage.vue'),
       meta: { requiresAuth: true, role: 'admin' },
     },
   ],

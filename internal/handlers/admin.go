@@ -10,20 +10,33 @@ import (
 )
 
 type AdminHandler struct {
-	adminService *services.AdminService
-	statsService *services.StatsService
+	adminService      *services.AdminService
+	statsService      *services.StatsService
+	permissionService *services.PermissionService
 }
 
 func NewAdminHandler() *AdminHandler {
 	return &AdminHandler{
-		adminService: services.NewAdminService(),
-		statsService: services.NewStatsService(),
+		adminService:      services.NewAdminService(),
+		statsService:      services.NewStatsService(),
+		permissionService: services.NewPermissionService(),
 	}
 }
 
 // GetPendingUsers retrieves all users pending approval
 func (h *AdminHandler) GetPendingUsers(c *gin.Context) {
 	users, err := h.adminService.GetPendingUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"users": users, "count": len(users)})
+}
+
+// GetAllUsers retrieves all users (for permission management)
+func (h *AdminHandler) GetAllUsers(c *gin.Context) {
+	users, err := h.adminService.GetAllUsers()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -367,4 +380,109 @@ func (h *TaskQueueHandler) GetTaskQueueForReviewers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, queue)
+}
+
+// ==================== Permission Management ====================
+
+// ListPermissions retrieves permissions with pagination and filtering
+func (h *AdminHandler) ListPermissions(c *gin.Context) {
+	var req models.ListPermissionsRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set defaults
+	if req.Page < 1 {
+		req.Page = 1
+	}
+	if req.PageSize < 1 {
+		req.PageSize = 20
+	}
+
+	response, err := h.permissionService.ListPermissions(req.Resource, req.Category, req.Search, req.Page, req.PageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetAllPermissions retrieves all permissions (no pagination)
+func (h *AdminHandler) GetAllPermissions(c *gin.Context) {
+	permissions, err := h.permissionService.GetAllPermissions()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"permissions": permissions})
+}
+
+// GetUserPermissions retrieves permissions for a specific user
+func (h *AdminHandler) GetUserPermissions(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Query("user_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id parameter"})
+		return
+	}
+
+	permissions, err := h.permissionService.GetUserPermissions(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.UserPermissionsResponse{
+		UserID:      userID,
+		Permissions: permissions,
+	})
+}
+
+// GrantPermissions grants permissions to a user
+func (h *AdminHandler) GrantPermissions(c *gin.Context) {
+	// Get current admin user ID
+	adminUserID := c.GetInt("user_id")
+
+	var req models.GrantPermissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Grant permissions
+	err := h.permissionService.GrantPermissions(req.UserID, req.PermissionKeys, adminUserID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Permissions granted successfully",
+		"user_id":     req.UserID,
+		"permissions": req.PermissionKeys,
+	})
+}
+
+// RevokePermissions revokes permissions from a user
+func (h *AdminHandler) RevokePermissions(c *gin.Context) {
+	var req models.RevokePermissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Revoke permissions
+	err := h.permissionService.RevokePermissions(req.UserID, req.PermissionKeys)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Permissions revoked successfully",
+		"user_id":     req.UserID,
+		"permissions": req.PermissionKeys,
+	})
 }
