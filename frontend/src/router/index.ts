@@ -107,6 +107,18 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
+      path: '/reviewer/video-first-review',
+      name: 'VideoFirstReviewDashboard',
+      component: () => import('../views/reviewer/VideoFirstReviewDashboard.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
+      path: '/reviewer/video-second-review',
+      name: 'VideoSecondReviewDashboard',
+      component: () => import('../views/reviewer/VideoSecondReviewDashboard.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
       path: '/admin',
       redirect: '/main/queue-list',
       meta: { requiresAuth: true, role: 'admin' },
@@ -145,6 +157,12 @@ const router = createRouter({
       path: '/admin/moderation-rules',
       name: 'ModerationRules',
       component: () => import('../views/admin/ModerationRules.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
+      path: '/admin/video-import',
+      name: 'VideoImport',
+      component: () => import('../views/admin/VideoImport.vue'),
       meta: { requiresAuth: true, role: 'admin' },
     },
     {

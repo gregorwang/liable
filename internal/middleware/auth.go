@@ -40,6 +40,9 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
 
+		// Debug: log user info
+		println("🔍 Auth Debug - User:", claims.Username, "Role:", claims.Role, "ID:", claims.UserID)
+
 		c.Next()
 	}
 }
@@ -70,4 +73,3 @@ func GetRole(c *gin.Context) string {
 	}
 	return role.(string)
 }
-

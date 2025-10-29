@@ -407,3 +407,183 @@ export interface QCTasksResponse {
   count: number
 }
 
+// TikTok Video Review Types
+
+export interface TikTokVideo {
+  id: number
+  video_key: string
+  filename: string
+  file_size: number
+  duration?: number
+  upload_time?: string
+  video_url?: string
+  url_expires_at?: string
+  status: 'pending' | 'first_review_completed' | 'second_review_completed'
+  created_at: string
+  updated_at: string
+}
+
+export interface VideoQualityTag {
+  id: number
+  name: string
+  description: string
+  category: 'content' | 'technical' | 'compliance' | 'engagement'
+  is_active: boolean
+  created_at: string
+}
+
+export interface QualityDimension {
+  score: number // 1-10
+  tags: string[]
+}
+
+export interface QualityDimensions {
+  content_quality: QualityDimension
+  technical_quality: QualityDimension
+  compliance: QualityDimension
+  engagement_potential: QualityDimension
+}
+
+export interface VideoFirstReviewTask {
+  id: number
+  video_id: number
+  reviewer_id: number | null
+  status: 'pending' | 'in_progress' | 'completed'
+  claimed_at: string | null
+  completed_at: string | null
+  created_at: string
+  video?: TikTokVideo
+}
+
+export interface VideoFirstReviewResult {
+  id: number
+  task_id: number
+  reviewer_id: number
+  is_approved: boolean
+  quality_dimensions: QualityDimensions
+  overall_score: number // sum of all dimension scores (1-40)
+  traffic_pool_result?: string
+  reason?: string
+  created_at: string
+  reviewer?: User
+}
+
+export interface VideoSecondReviewTask {
+  id: number
+  first_review_result_id: number
+  video_id: number
+  reviewer_id: number | null
+  status: 'pending' | 'in_progress' | 'completed'
+  claimed_at: string | null
+  completed_at: string | null
+  created_at: string
+  video?: TikTokVideo
+  first_review_result?: VideoFirstReviewResult
+}
+
+export interface VideoSecondReviewResult {
+  id: number
+  second_task_id: number
+  reviewer_id: number
+  is_approved: boolean
+  quality_dimensions: QualityDimensions
+  overall_score: number // sum of all dimension scores (1-40)
+  traffic_pool_result?: string
+  reason?: string
+  created_at: string
+}
+
+// Video Review Request/Response Types
+
+export interface ImportVideosRequest {
+  r2_path_prefix: string
+}
+
+export interface ImportVideosResponse {
+  imported_count: number
+  skipped_count: number
+  errors: string[]
+}
+
+export interface ListVideosRequest {
+  status?: string
+  search?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ListVideosResponse {
+  data: TikTokVideo[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface ClaimVideoFirstReviewTasksRequest {
+  count: number
+}
+
+export interface ClaimVideoFirstReviewTasksResponse {
+  tasks: VideoFirstReviewTask[]
+  count: number
+}
+
+export interface SubmitVideoFirstReviewRequest {
+  task_id: number
+  is_approved: boolean
+  quality_dimensions: QualityDimensions
+  traffic_pool_result?: string
+  reason?: string
+}
+
+export interface BatchSubmitVideoFirstReviewRequest {
+  reviews: SubmitVideoFirstReviewRequest[]
+}
+
+export interface ReturnVideoFirstReviewTasksRequest {
+  task_ids: number[]
+}
+
+export interface ClaimVideoSecondReviewTasksRequest {
+  count: number
+}
+
+export interface ClaimVideoSecondReviewTasksResponse {
+  tasks: VideoSecondReviewTask[]
+  count: number
+}
+
+export interface SubmitVideoSecondReviewRequest {
+  task_id: number
+  is_approved: boolean
+  quality_dimensions: QualityDimensions
+  traffic_pool_result?: string
+  reason?: string
+}
+
+export interface BatchSubmitVideoSecondReviewRequest {
+  reviews: SubmitVideoSecondReviewRequest[]
+}
+
+export interface ReturnVideoSecondReviewTasksRequest {
+  task_ids: number[]
+}
+
+export interface GetVideoQualityTagsRequest {
+  category?: string
+}
+
+export interface GetVideoQualityTagsResponse {
+  tags: VideoQualityTag[]
+}
+
+export interface GenerateVideoURLRequest {
+  video_id: number
+}
+
+export interface GenerateVideoURLResponse {
+  video_url: string
+  expires_at: string
+}
+

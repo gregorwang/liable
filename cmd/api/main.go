@@ -95,6 +95,14 @@ func setupRouter(db interface{}) *gin.Engine {
 	qualityCheckHandler := handlers.NewQualityCheckHandler()
 	adminHandler := handlers.NewAdminHandler()
 
+	// Initialize video handler
+	videoHandler, err := handlers.NewVideoHandler()
+	if err != nil {
+		log.Printf("⚠️ Warning: Failed to initialize video handler: %v", err)
+		// Create a nil handler to avoid nil pointer issues
+		videoHandler = nil
+	}
+
 	// Type assert database connection
 	sqlDB, ok := db.(*sql.DB)
 	if !ok {
@@ -152,6 +160,23 @@ func setupRouter(db interface{}) *gin.Engine {
 			tasks.POST("/quality-check/submit-batch", qualityCheckHandler.SubmitBatchQCReviews)
 			tasks.POST("/quality-check/return", qualityCheckHandler.ReturnQCTasks)
 			tasks.GET("/quality-check/stats", qualityCheckHandler.GetQCStats)
+
+			// Video review routes (if video handler is available)
+			if videoHandler != nil {
+				// Video first review routes
+				tasks.POST("/video-first-review/claim", videoHandler.ClaimVideoFirstReviewTasks)
+				tasks.GET("/video-first-review/my", videoHandler.GetMyVideoFirstReviewTasks)
+				tasks.POST("/video-first-review/submit", videoHandler.SubmitVideoFirstReview)
+				tasks.POST("/video-first-review/submit-batch", videoHandler.SubmitBatchVideoFirstReviews)
+				tasks.POST("/video-first-review/return", videoHandler.ReturnVideoFirstReviewTasks)
+
+				// Video second review routes
+				tasks.POST("/video-second-review/claim", videoHandler.ClaimVideoSecondReviewTasks)
+				tasks.GET("/video-second-review/my", videoHandler.GetMyVideoSecondReviewTasks)
+				tasks.POST("/video-second-review/submit", videoHandler.SubmitVideoSecondReview)
+				tasks.POST("/video-second-review/submit-batch", videoHandler.SubmitBatchVideoSecondReviews)
+				tasks.POST("/video-second-review/return", videoHandler.ReturnVideoSecondReviewTasks)
+			}
 		}
 
 		// Search route (requires login, available for both admin and reviewer)
@@ -159,6 +184,15 @@ func setupRouter(db interface{}) *gin.Engine {
 
 		// Tag routes (public for reviewers)
 		api.GET("/tags", middleware.AuthMiddleware(), taskHandler.GetActiveTags)
+
+		// Video quality tags route (if video handler is available)
+		if videoHandler != nil {
+			api.GET("/video-quality-tags", middleware.AuthMiddleware(), videoHandler.GetVideoQualityTags)
+			// Video URL generation - available for both admin and reviewer
+			api.POST("/admin/videos/generate-url", middleware.AuthMiddleware(), middleware.RequireAdminOrReviewer(), videoHandler.GenerateVideoURL)
+			// Test endpoint for data structure validation (no auth required)
+			api.POST("/test/video-review-structure", videoHandler.TestVideoReviewDataStructure)
+		}
 
 		// Public Queue Read-Only API (no auth required)
 		taskQueueHandler := handlers.NewTaskQueueHandler()
@@ -213,6 +247,13 @@ func setupRouter(db interface{}) *gin.Engine {
 
 			// Notification management (admin only)
 			admin.POST("/notifications", notificationHandler.CreateNotification)
+
+			// Video management (if video handler is available)
+			if videoHandler != nil {
+				admin.POST("/videos/import", videoHandler.ImportVideos)
+				admin.GET("/videos", videoHandler.ListVideos)
+				admin.GET("/videos/:id", videoHandler.GetVideo)
+			}
 		}
 	}
 
@@ -241,6 +282,8 @@ func startTaskReleaseWorker() {
 	taskService := services.NewTaskService()
 	secondReviewService := services.NewSecondReviewService()
 	qcService := services.NewQualityCheckService()
+	videoFirstReviewService := services.NewVideoFirstReviewService()
+	videoSecondReviewService := services.NewVideoSecondReviewService()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -255,6 +298,12 @@ func startTaskReleaseWorker() {
 		}
 		if err := qcService.ReleaseExpiredQCTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired QC tasks: %v", err)
+		}
+		if err := videoFirstReviewService.ReleaseExpiredFirstReviewTasks(); err != nil {
+			log.Printf("⚠️ Error releasing expired video first review tasks: %v", err)
+		}
+		if err := videoSecondReviewService.ReleaseExpiredSecondReviewTasks(); err != nil {
+			log.Printf("⚠️ Error releasing expired video second review tasks: %v", err)
 		}
 	}
 }

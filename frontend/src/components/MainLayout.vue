@@ -109,6 +109,24 @@
             <template #title>数据管理</template>
           </el-menu-item>
           
+          <!-- 视频审核菜单项 -->
+          <el-sub-menu index="video-review">
+            <template #title>
+              <el-icon><VideoPlay /></el-icon>
+              <span>视频审核</span>
+            </template>
+            
+            <el-menu-item index="video-first-review">
+              <el-icon><VideoCamera /></el-icon>
+              <template #title>视频一审</template>
+            </el-menu-item>
+            
+            <el-menu-item index="video-second-review">
+              <el-icon><VideoCameraFilled /></el-icon>
+              <template #title>视频二审</template>
+            </el-menu-item>
+          </el-sub-menu>
+          
           <!-- 仅管理员可见的菜单项 -->
           <template v-if="userStore.isAdmin()">
             <!-- 管理后台分组 -->
@@ -141,6 +159,11 @@
               <el-menu-item index="admin-queue-management">
                 <el-icon><Operation /></el-icon>
                 <template #title>队列配置</template>
+              </el-menu-item>
+              
+              <el-menu-item index="admin-video-import">
+                <el-icon><Upload /></el-icon>
+                <template #title>视频导入</template>
               </el-menu-item>
             </el-sub-menu>
           </template>
@@ -191,7 +214,11 @@ import {
   Bell,
   PriceTag,
   Operation,
-  Loading
+  Loading,
+  VideoPlay,
+  VideoCamera,
+  VideoCameraFilled,
+  Upload
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { useNotificationStore } from '../stores/notification'
@@ -223,6 +250,11 @@ const asyncComponents: Record<string, any> = {
   'admin-statistics': defineAsyncComponent(() => import('../views/admin/Statistics.vue')),
   'admin-tag-management': defineAsyncComponent(() => import('../views/admin/TagManage.vue')),
   'admin-queue-management': defineAsyncComponent(() => import('../views/admin/QueueManage.vue')),
+  'admin-video-import': defineAsyncComponent(() => import('../views/admin/VideoImport.vue')),
+  
+  // 视频审核组件
+  'video-first-review': defineAsyncComponent(() => import('../views/reviewer/VideoFirstReviewDashboard.vue')),
+  'video-second-review': defineAsyncComponent(() => import('../views/reviewer/VideoSecondReviewDashboard.vue')),
 }
 
 // 侧边栏状态

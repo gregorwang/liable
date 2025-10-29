@@ -88,7 +88,7 @@ const hasMore = computed(() => {
 
 onMounted(async () => {
   try {
-    const result = await notificationStore.fetchRecent(pageSize, 0)
+    await notificationStore.fetchRecent(pageSize, 0)
     currentPage.value = 0
   } catch (error) {
     console.error('Failed to load notifications:', error)

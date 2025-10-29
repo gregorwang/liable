@@ -26,7 +26,12 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 		}
 
 		if !hasRole {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+			// Debug: log the role mismatch
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":          "Insufficient permissions",
+				"your_role":      userRole,
+				"required_roles": roles,
+			})
 			c.Abort()
 			return
 		}
@@ -45,3 +50,7 @@ func RequireReviewer() gin.HandlerFunc {
 	return RequireRole("reviewer", "admin") // Admin can also act as reviewer
 }
 
+// RequireAdminOrReviewer is a shortcut for requiring admin or reviewer role
+func RequireAdminOrReviewer() gin.HandlerFunc {
+	return RequireRole("admin", "reviewer")
+}

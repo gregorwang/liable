@@ -487,3 +487,191 @@ type QCErrorTypeStat struct {
 	ErrorType string `json:"error_type"`
 	Count     int    `json:"count"`
 }
+
+// TikTok Video Review Models
+
+// TikTokVideo represents a TikTok video stored in R2
+type TikTokVideo struct {
+	ID           int        `json:"id"`
+	VideoKey     string     `json:"video_key"` // R2 path/key
+	Filename     string     `json:"filename"`
+	FileSize     int64      `json:"file_size"` // bytes
+	Duration     *int       `json:"duration"`  // seconds
+	UploadTime   *time.Time `json:"upload_time"`
+	VideoURL     *string    `json:"video_url"`      // pre-signed URL (temporary)
+	URLExpiresAt *time.Time `json:"url_expires_at"` // when pre-signed URL expires
+	Status       string     `json:"status"`         // 'pending', 'first_review_completed', 'second_review_completed'
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+// VideoQualityTag represents a predefined quality assessment tag
+type VideoQualityTag struct {
+	ID          int       `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"` // 'content', 'technical', 'compliance', 'engagement'
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// QualityDimension represents a single quality dimension score
+type QualityDimension struct {
+	Score int      `json:"score"` // 1-10
+	Tags  []string `json:"tags"`
+}
+
+// QualityDimensions represents all quality dimensions for a video review
+type QualityDimensions struct {
+	ContentQuality      QualityDimension `json:"content_quality"`
+	TechnicalQuality    QualityDimension `json:"technical_quality"`
+	Compliance          QualityDimension `json:"compliance"`
+	EngagementPotential QualityDimension `json:"engagement_potential"`
+}
+
+// VideoFirstReviewTask represents a first review task for a video
+type VideoFirstReviewTask struct {
+	ID          int          `json:"id"`
+	VideoID     int          `json:"video_id"`
+	ReviewerID  *int         `json:"reviewer_id"`
+	Status      string       `json:"status"` // 'pending', 'in_progress', 'completed'
+	ClaimedAt   *time.Time   `json:"claimed_at"`
+	CompletedAt *time.Time   `json:"completed_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+	Video       *TikTokVideo `json:"video,omitempty"` // Optional joined data
+}
+
+// VideoFirstReviewResult represents the result of a first video review
+type VideoFirstReviewResult struct {
+	ID                int               `json:"id"`
+	TaskID            int               `json:"task_id"`
+	ReviewerID        int               `json:"reviewer_id"`
+	IsApproved        bool              `json:"is_approved"`
+	QualityDimensions QualityDimensions `json:"quality_dimensions"`
+	OverallScore      int               `json:"overall_score"`       // sum of all dimension scores (1-40)
+	TrafficPoolResult *string           `json:"traffic_pool_result"` // recommended traffic pool category
+	Reason            *string           `json:"reason"`
+	CreatedAt         time.Time         `json:"created_at"`
+	Reviewer          *User             `json:"reviewer,omitempty"` // Optional joined data
+}
+
+// VideoSecondReviewTask represents a second review task for a video
+type VideoSecondReviewTask struct {
+	ID                  int                     `json:"id"`
+	FirstReviewResultID int                     `json:"first_review_result_id"`
+	VideoID             int                     `json:"video_id"`
+	ReviewerID          *int                    `json:"reviewer_id"`
+	Status              string                  `json:"status"` // 'pending', 'in_progress', 'completed'
+	ClaimedAt           *time.Time              `json:"claimed_at"`
+	CompletedAt         *time.Time              `json:"completed_at"`
+	CreatedAt           time.Time               `json:"created_at"`
+	Video               *TikTokVideo            `json:"video,omitempty"`               // Optional joined data
+	FirstReviewResult   *VideoFirstReviewResult `json:"first_review_result,omitempty"` // Optional joined data
+}
+
+// VideoSecondReviewResult represents the result of a second video review
+type VideoSecondReviewResult struct {
+	ID                int               `json:"id"`
+	SecondTaskID      int               `json:"second_task_id"`
+	ReviewerID        int               `json:"reviewer_id"`
+	IsApproved        bool              `json:"is_approved"`
+	QualityDimensions QualityDimensions `json:"quality_dimensions"`
+	OverallScore      int               `json:"overall_score"`       // sum of all dimension scores (1-40)
+	TrafficPoolResult *string           `json:"traffic_pool_result"` // recommended traffic pool category
+	Reason            *string           `json:"reason"`
+	CreatedAt         time.Time         `json:"created_at"`
+}
+
+// Request/Response DTOs for Video Review
+
+type ImportVideosRequest struct {
+	R2PathPrefix string `json:"r2_path_prefix" binding:"required"`
+}
+
+type ImportVideosResponse struct {
+	ImportedCount int      `json:"imported_count"`
+	SkippedCount  int      `json:"skipped_count"`
+	Errors        []string `json:"errors"`
+}
+
+type ListVideosRequest struct {
+	Status   string `form:"status"`    // Filter by status
+	Search   string `form:"search"`    // Search by filename
+	Page     int    `form:"page"`      // Page number, default 1
+	PageSize int    `form:"page_size"` // Page size, default 20
+}
+
+type ListVideosResponse struct {
+	Data       []TikTokVideo `json:"data"`
+	Total      int           `json:"total"`
+	Page       int           `json:"page"`
+	PageSize   int           `json:"page_size"`
+	TotalPages int           `json:"total_pages"`
+}
+
+type ClaimVideoFirstReviewTasksRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=50"`
+}
+
+type ClaimVideoFirstReviewTasksResponse struct {
+	Tasks []VideoFirstReviewTask `json:"tasks"`
+	Count int                    `json:"count"`
+}
+
+type SubmitVideoFirstReviewRequest struct {
+	TaskID            int               `json:"task_id" binding:"required"`
+	IsApproved        bool              `json:"is_approved"`
+	QualityDimensions QualityDimensions `json:"quality_dimensions" binding:"required"`
+	TrafficPoolResult *string           `json:"traffic_pool_result"`
+	Reason            *string           `json:"reason"`
+}
+
+type BatchSubmitVideoFirstReviewRequest struct {
+	Reviews []SubmitVideoFirstReviewRequest `json:"reviews" binding:"required,dive"`
+}
+
+type ReturnVideoFirstReviewTasksRequest struct {
+	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
+}
+
+type ClaimVideoSecondReviewTasksRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=50"`
+}
+
+type ClaimVideoSecondReviewTasksResponse struct {
+	Tasks []VideoSecondReviewTask `json:"tasks"`
+	Count int                     `json:"count"`
+}
+
+type SubmitVideoSecondReviewRequest struct {
+	TaskID            int               `json:"task_id" binding:"required"`
+	IsApproved        bool              `json:"is_approved"`
+	QualityDimensions QualityDimensions `json:"quality_dimensions" binding:"required"`
+	TrafficPoolResult *string           `json:"traffic_pool_result"`
+	Reason            *string           `json:"reason"`
+}
+
+type BatchSubmitVideoSecondReviewRequest struct {
+	Reviews []SubmitVideoSecondReviewRequest `json:"reviews" binding:"required,dive"`
+}
+
+type ReturnVideoSecondReviewTasksRequest struct {
+	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
+}
+
+type GetVideoQualityTagsRequest struct {
+	Category string `form:"category"` // Filter by category
+}
+
+type GetVideoQualityTagsResponse struct {
+	Tags []VideoQualityTag `json:"tags"`
+}
+
+type GenerateVideoURLRequest struct {
+	VideoID int `json:"video_id" binding:"required"`
+}
+
+type GenerateVideoURLResponse struct {
+	VideoURL  string    `json:"video_url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
