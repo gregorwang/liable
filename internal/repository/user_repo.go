@@ -1,10 +1,10 @@
 package repository
 
 import (
-	"comment-review-platform/internal/models"
-	"comment-review-platform/pkg/database"
-	"database/sql"
-	"errors"
+    "comment-review-platform/internal/models"
+    "comment-review-platform/pkg/database"
+    "database/sql"
+    "errors"
 )
 
 type UserRepository struct {
@@ -15,51 +15,84 @@ func NewUserRepository() *UserRepository {
 	return &UserRepository{db: database.DB}
 }
 
-// Create creates a new user
+// Create creates a new user (supports optional email)
 func (r *UserRepository) Create(user *models.User) error {
-	query := `
-		INSERT INTO users (username, password, role, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, NOW(), NOW())
+    var emailValue interface{}
+    if user.Email != nil {
+        emailValue = *user.Email
+    } else {
+        emailValue = nil
+    }
+    query := `
+		INSERT INTO users (username, password, email, email_verified, role, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		RETURNING id, created_at, updated_at
 	`
-	return r.db.QueryRow(query, user.Username, user.Password, user.Role, user.Status).
-		Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+    return r.db.QueryRow(query, user.Username, user.Password, emailValue, user.EmailVerified, user.Role, user.Status).
+        Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 }
 
 // FindByUsername finds a user by username
 func (r *UserRepository) FindByUsername(username string) (*models.User, error) {
 	query := `
-		SELECT id, username, password, role, status, created_at, updated_at
+		SELECT id, username, password, email, email_verified, role, status, created_at, updated_at
 		FROM users
 		WHERE username = $1
 	`
 	user := &models.User{}
-	err := r.db.QueryRow(query, username).Scan(
-		&user.ID, &user.Username, &user.Password, &user.Role, &user.Status,
-		&user.CreatedAt, &user.UpdatedAt,
-	)
+    var emailPtr *string
+    err := r.db.QueryRow(query, username).Scan(
+        &user.ID, &user.Username, &user.Password, &emailPtr, &user.EmailVerified, &user.Role, &user.Status,
+        &user.CreatedAt, &user.UpdatedAt,
+    )
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
+    user.Email = emailPtr
 	return user, err
 }
 
 // FindByID finds a user by ID
 func (r *UserRepository) FindByID(id int) (*models.User, error) {
 	query := `
-		SELECT id, username, password, role, status, created_at, updated_at
+		SELECT id, username, password, email, email_verified, role, status, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	user := &models.User{}
-	err := r.db.QueryRow(query, id).Scan(
-		&user.ID, &user.Username, &user.Password, &user.Role, &user.Status,
-		&user.CreatedAt, &user.UpdatedAt,
-	)
+    var emailPtr *string
+    err := r.db.QueryRow(query, id).Scan(
+        &user.ID, &user.Username, &user.Password, &emailPtr, &user.EmailVerified, &user.Role, &user.Status,
+        &user.CreatedAt, &user.UpdatedAt,
+    )
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
+    user.Email = emailPtr
 	return user, err
+}
+
+// FindByEmail finds a user by email
+func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
+    query := `
+		SELECT id, username, password, email, email_verified, role, status, created_at, updated_at
+		FROM users
+		WHERE email = $1
+	`
+    user := &models.User{}
+    var emailPtr *string
+    err := r.db.QueryRow(query, email).Scan(
+        &user.ID, &user.Username, &user.Password, &emailPtr, &user.EmailVerified, &user.Role, &user.Status,
+        &user.CreatedAt, &user.UpdatedAt,
+    )
+    if err == sql.ErrNoRows {
+        return nil, errors.New("user not found")
+    }
+    if err != nil {
+        return nil, err
+    }
+    user.Email = emailPtr
+    return user, nil
 }
 
 // FindPendingUsers returns all users with pending status

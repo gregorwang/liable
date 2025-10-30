@@ -24,52 +24,97 @@
           </div>
         </template>
         
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          label-position="top"
-          size="large"
-        >
-          <el-form-item label="用户名" prop="username">
-            <el-input
-              v-model="form.username"
-              placeholder="请输入用户名"
-              @keyup.enter="handleLogin"
-            />
-          </el-form-item>
-          
-          <el-form-item label="密码" prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              placeholder="请输入密码"
-              show-password
-              @keyup.enter="handleLogin"
-            />
-          </el-form-item>
-          
-          <el-form-item>
-            <el-button
-              type="primary"
-              :loading="loading"
-              style="width: 100%"
-              @click="handleLogin"
+        <el-tabs v-model="loginType" class="login-tabs">
+          <el-tab-pane label="密码登录" name="password">
+            <el-form
+              ref="formRef"
+              :model="form"
+              :rules="rules"
+              label-position="top"
+              size="large"
             >
-              登录
-            </el-button>
-          </el-form-item>
-          
-          <el-form-item>
-            <el-button
-              text
-              style="width: 100%"
-              @click="goToRegister"
-            >
-              还没有账号？立即注册
-            </el-button>
-          </el-form-item>
-        </el-form>
+              <el-form-item label="用户名" prop="username">
+                <el-input
+                  v-model="form.username"
+                  placeholder="请输入用户名"
+                  @keyup.enter="handleLogin"
+                />
+              </el-form-item>
+
+              <el-form-item label="密码" prop="password">
+                <el-input
+                  v-model="form.password"
+                  type="password"
+                  placeholder="请输入密码"
+                  show-password
+                  @keyup.enter="handleLogin"
+                />
+              </el-form-item>
+
+              <el-form-item>
+                <el-button
+                  type="primary"
+                  :loading="loading"
+                  style="width: 100%"
+                  @click="handleLogin"
+                >
+                  登录
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+
+          <el-tab-pane label="验证码登录" name="code">
+            <el-form ref="codeFormRef" :model="codeForm" :rules="codeRules" label-position="top" size="large">
+              <el-form-item label="邮箱" prop="email">
+                <el-input
+                  v-model="codeForm.email"
+                  placeholder="请输入邮箱地址"
+                  @keyup.enter="handleSendCode"
+                />
+              </el-form-item>
+
+              <el-form-item label="验证码" prop="code">
+                <div class="code-input-group">
+                  <el-input
+                    v-model="codeForm.code"
+                    placeholder="请输入6位验证码"
+                    maxlength="6"
+                    @keyup.enter="handleLoginWithCode"
+                  />
+                  <el-button
+                    :disabled="codeCountdown > 0"
+                    @click="handleSendCode"
+                    :loading="sendingCode"
+                  >
+                    {{ codeCountdown > 0 ? `${codeCountdown}秒后重试` : '发送验证码' }}
+                  </el-button>
+                </div>
+              </el-form-item>
+
+              <el-form-item>
+                <el-button
+                  type="primary"
+                  :loading="loading"
+                  style="width: 100%"
+                  @click="handleLoginWithCode"
+                >
+                  登录
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+        </el-tabs>
+
+        <el-form-item>
+          <el-button
+            text
+            style="width: 100%"
+            @click="goToRegister"
+          >
+            还没有账号？立即注册
+          </el-button>
+        </el-form-item>
       </el-card>
     </div>
   </div>
@@ -80,12 +125,17 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useUserStore } from '../stores/user'
+import { sendVerificationCode } from '../api/auth'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
+const codeFormRef = ref<FormInstance>()
 const loading = ref(false)
+const sendingCode = ref(false)
+const codeCountdown = ref(0)
+const loginType = ref<'password' | 'code'>('password')
 
 const form = reactive({
   username: '',
@@ -99,6 +149,22 @@ const rules: FormRules = {
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
     { min: 6, message: '密码至少6位', trigger: 'blur' },
+  ],
+}
+
+const codeForm = reactive({
+  email: '',
+  code: '',
+})
+
+const codeRules: FormRules = {
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' },
+  ],
+  code: [
+    { required: true, message: '请输入验证码', trigger: 'blur' },
+    { len: 6, message: '验证码为6位数字', trigger: 'blur' },
   ],
 }
 
@@ -117,6 +183,44 @@ const handleLogin = async () => {
       router.push('/main/queue-list')
     } catch (error) {
       console.error('Login failed:', error)
+    } finally {
+      loading.value = false
+    }
+  })
+}
+
+const handleSendCode = async () => {
+  if (!codeFormRef.value) return
+  await codeFormRef.value.validateField('email', async (valid) => {
+    if (!valid) return
+    sendingCode.value = true
+    try {
+      await sendVerificationCode(codeForm.email, 'login')
+      ElMessage.success('验证码已发送，请查收邮件')
+      codeCountdown.value = 60
+      const timer = setInterval(() => {
+        codeCountdown.value--
+        if (codeCountdown.value <= 0) clearInterval(timer)
+      }, 1000)
+    } catch (error: any) {
+      ElMessage.error(error?.response?.data?.error || '发送验证码失败')
+    } finally {
+      sendingCode.value = false
+    }
+  })
+}
+
+const handleLoginWithCode = async () => {
+  if (!codeFormRef.value) return
+  await codeFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    loading.value = true
+    try {
+      await userStore.loginWithCode(codeForm.email, codeForm.code)
+      ElMessage.success('登录成功')
+      router.push('/main/queue-list')
+    } catch (error: any) {
+      ElMessage.error(error?.response?.data?.error || '登录失败')
     } finally {
       loading.value = false
     }
@@ -252,6 +356,19 @@ const goToRegister = () => {
 
 .login-card :deep(.el-card__body) {
   padding: var(--spacing-8) var(--spacing-6);
+}
+
+.login-tabs {
+  margin-bottom: var(--spacing-4);
+}
+
+.code-input-group {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.code-input-group :deep(.el-input) {
+  flex: 1;
 }
 
 /* ============================================

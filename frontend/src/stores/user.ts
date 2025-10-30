@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { User } from '../types'
 import { setToken, setUser, getUser, removeToken } from '../utils/auth'
-import { login as loginApi, getProfile } from '../api/auth'
+import { login as loginApi, getProfile, loginWithCode as loginWithCodeApi } from '../api/auth'
 
 export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>(getUser())
@@ -29,6 +29,15 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  async function loginWithCode(email: string, code: string) {
+    const res = await loginWithCodeApi(email, code)
+    token.value = res.token
+    user.value = res.user
+    setToken(res.token)
+    setUser(res.user)
+    return res
+  }
+
   function logout() {
     user.value = null
     token.value = null
@@ -47,6 +56,7 @@ export const useUserStore = defineStore('user', () => {
     user,
     token,
     login,
+    loginWithCode,
     logout,
     loadProfile,
     isAdmin,

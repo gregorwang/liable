@@ -123,6 +123,10 @@ func setupRouter(db interface{}) *gin.Engine {
 		{
 			auth.POST("/register", authHandler.Register)
 			auth.POST("/login", authHandler.Login)
+			auth.POST("/send-code", authHandler.SendVerificationCode)
+			auth.POST("/login-with-code", authHandler.LoginWithCode)
+			auth.POST("/register-with-code", authHandler.RegisterWithCode)
+			auth.GET("/check-email", authHandler.CheckEmail)
 			auth.GET("/profile", middleware.AuthMiddleware(), authHandler.GetProfile)
 		}
 

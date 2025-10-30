@@ -31,29 +31,36 @@
           label-position="top"
           size="large"
         >
+          <el-form-item label="邮箱" prop="email">
+            <el-input
+              v-model="form.email"
+              placeholder="请输入邮箱地址"
+              @keyup.enter="handleSendCode"
+            />
+          </el-form-item>
+
+          <el-form-item label="验证码" prop="code">
+            <div class="code-input-group">
+              <el-input
+                v-model="form.code"
+                placeholder="请输入6位验证码"
+                maxlength="6"
+                @keyup.enter="handleRegister"
+              />
+              <el-button
+                :disabled="codeCountdown > 0"
+                @click="handleSendCode"
+                :loading="sendingCode"
+              >
+                {{ codeCountdown > 0 ? `${codeCountdown}秒后重试` : '发送验证码' }}
+              </el-button>
+            </div>
+          </el-form-item>
+
           <el-form-item label="用户名" prop="username">
             <el-input
               v-model="form.username"
               placeholder="请输入用户名"
-            />
-          </el-form-item>
-          
-          <el-form-item label="密码" prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              placeholder="请输入密码"
-              show-password
-            />
-          </el-form-item>
-          
-          <el-form-item label="确认密码" prop="confirmPassword">
-            <el-input
-              v-model="form.confirmPassword"
-              type="password"
-              placeholder="请再次输入密码"
-              show-password
-              @keyup.enter="handleRegister"
             />
           </el-form-item>
           
@@ -87,57 +94,70 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { register } from '../api/auth'
+import { sendVerificationCode, registerWithCode } from '../api/auth'
 
 const router = useRouter()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
+const sendingCode = ref(false)
+const codeCountdown = ref(0)
 
 const form = reactive({
+  email: '',
+  code: '',
   username: '',
-  password: '',
-  confirmPassword: '',
 })
 
-const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
-  if (value !== form.password) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
-  }
-}
-
 const rules: FormRules = {
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' },
+  ],
+  code: [
+    { required: true, message: '请输入验证码', trigger: 'blur' },
+    { len: 6, message: '验证码为6位数字', trigger: 'blur' },
+  ],
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
     { min: 3, message: '用户名至少3位', trigger: 'blur' },
   ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码至少6位', trigger: 'blur' },
-  ],
-  confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
-    { validator: validateConfirmPassword, trigger: 'blur' },
-  ],
+}
+
+const handleSendCode = async () => {
+  if (!formRef.value) return
+  await formRef.value.validateField('email', async (valid) => {
+    if (!valid) return
+    sendingCode.value = true
+    try {
+      await sendVerificationCode(form.email, 'register')
+      ElMessage.success('验证码已发送，请查收邮件')
+      codeCountdown.value = 60
+      const timer = setInterval(() => {
+        codeCountdown.value--
+        if (codeCountdown.value <= 0) clearInterval(timer)
+      }, 1000)
+    } catch (error: any) {
+      ElMessage.error(error?.response?.data?.error || '发送验证码失败')
+    } finally {
+      sendingCode.value = false
+    }
+  })
 }
 
 const handleRegister = async () => {
   if (!formRef.value) return
-  
   await formRef.value.validate(async (valid) => {
     if (!valid) return
-    
     loading.value = true
     try {
-      const res = await register(form.username, form.password)
+      const res = await registerWithCode(form.email, form.code, form.username)
       ElMessage.success(res.message || '注册成功，请等待管理员审批')
       setTimeout(() => {
         router.push('/login')
-      }, 1500)
+      }, 1200)
     } catch (error) {
-      console.error('Register failed:', error)
+      ElMessage.error(error?.response?.data?.error || '注册失败')
     } finally {
       loading.value = false
     }
@@ -273,6 +293,15 @@ const goToLogin = () => {
 
 .register-card :deep(.el-card__body) {
   padding: var(--spacing-8) var(--spacing-6);
+}
+
+.code-input-group {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.code-input-group :deep(.el-input) {
+  flex: 1;
 }
 
 /* ============================================

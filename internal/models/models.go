@@ -4,13 +4,15 @@ import "time"
 
 // User represents a user (reviewer or admin)
 type User struct {
-	ID        int       `json:"id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`      // Never send password in JSON
-	Role      string    `json:"role"`   // "reviewer" or "admin"
-	Status    string    `json:"status"` // "pending", "approved", "rejected"
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+    ID            int       `json:"id"`
+    Username      string    `json:"username"`
+    Password      string    `json:"-"`                 // Never send password in JSON
+    Email         *string   `json:"email,omitempty"`   // Optional email
+    EmailVerified bool      `json:"email_verified"`    // Email verified flag
+    Role          string    `json:"role"`              // "reviewer" or "admin"
+    Status        string    `json:"status"`            // "pending", "approved", "rejected"
+    CreatedAt     time.Time `json:"created_at"`
+    UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Comment represents a comment from the existing table

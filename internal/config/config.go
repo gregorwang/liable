@@ -33,6 +33,10 @@ type Config struct {
 	R2BucketName        string
 	R2Endpoint          string
 	R2VideoPathPrefix   string
+
+	// Resend (Email) Configuration
+	ResendAPIKey    string
+	ResendFromEmail string
 }
 
 var AppConfig *Config
@@ -72,6 +76,8 @@ func LoadConfig() *Config {
 		RedisDB:            redisDB,
 		RedisUseTLS:        redisUseTLS,
 		DatabaseURL:        databaseURL,
+		ResendAPIKey:       getEnv("RESEND_API_KEY", ""),
+		ResendFromEmail:    getEnv("RESEND_FROM_EMAIL", "noreply@wangjiajun.asia"),
 		TaskClaimSize:      taskClaimSize,
 		TaskTimeoutMinutes: taskTimeoutMinutes,
 

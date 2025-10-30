@@ -72,3 +72,29 @@ func (s *AuthService) GetUserByID(id int) (*models.User, error) {
 	return s.userRepo.FindByID(id)
 }
 
+// GetUserByEmail retrieves a user by email
+func (s *AuthService) GetUserByEmail(email string) (*models.User, error) {
+    return s.userRepo.FindByEmail(email)
+}
+
+// RegisterWithEmail registers a user without password using verified email
+func (s *AuthService) RegisterWithEmail(email, username string) (*models.User, error) {
+    if existing, _ := s.userRepo.FindByEmail(email); existing != nil {
+        return nil, errors.New("邮箱已被注册")
+    }
+    if existingUser, _ := s.userRepo.FindByUsername(username); existingUser != nil {
+        return nil, errors.New("用户名已存在")
+    }
+    user := &models.User{
+        Username:      username,
+        Email:         &email,
+        EmailVerified: true,
+        Role:          "reviewer",
+        Status:        "pending",
+    }
+    if err := s.userRepo.Create(user); err != nil {
+        return nil, err
+    }
+    return user, nil
+}
+
