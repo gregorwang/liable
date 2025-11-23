@@ -78,6 +78,17 @@ func (h *AdminHandler) GetOverviewStats(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
+// GetTodayReviewStats retrieves same-day review counts
+func (h *AdminHandler) GetTodayReviewStats(c *gin.Context) {
+	stats, err := h.statsService.GetTodayReviewStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
 // GetHourlyStats retrieves hourly statistics
 func (h *AdminHandler) GetHourlyStats(c *gin.Context) {
 	date := c.DefaultQuery("date", "")
@@ -117,6 +128,28 @@ func (h *AdminHandler) GetReviewerPerformance(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"reviewers": performances})
+}
+
+// GetVideoQualityTagStats returns video quality tag statistics
+func (h *AdminHandler) GetVideoQualityTagStats(c *gin.Context) {
+	stats, err := h.statsService.GetVideoQualityTagStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"stats": stats})
+}
+
+// GetVideoQualityAnalysis returns comprehensive video quality analysis
+func (h *AdminHandler) GetVideoQualityAnalysis(c *gin.Context) {
+	analysis, err := h.statsService.GetVideoQualityAnalysis()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, analysis)
 }
 
 // GetAllTags retrieves all tags (including inactive)

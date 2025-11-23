@@ -124,6 +124,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
+      path: '/reviewer/video-queue-review',
+      name: 'VideoQueueReviewDashboard',
+      component: () => import('../views/reviewer/VideoQueueReviewDashboard.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
       path: '/admin',
       redirect: '/main/queue-list',
       meta: { requiresAuth: true, role: 'admin' },

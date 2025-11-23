@@ -454,13 +454,18 @@ onMounted(() => {
 }
 
 .task-body {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: row;
   gap: 24px;
 }
 
-.video-section,
+.video-section {
+  flex: 0 0 45%;
+  min-height: 400px;
+}
+
 .review-section {
+  flex: 1;
   min-height: 400px;
 }
 
@@ -475,7 +480,11 @@ onMounted(() => {
 /* Responsive design */
 @media (max-width: 1200px) {
   .task-body {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  
+  .video-section {
+    flex: 1;
   }
 }
 

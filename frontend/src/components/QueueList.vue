@@ -18,23 +18,21 @@
         style="width: 100%"
       >
         <el-table-column
-          prop="queue_name"
-          label="队列名称"
-          width="150"
-          show-overflow-tooltip
-        />
-        
-        <el-table-column
-          prop="description"
-          label="描述"
-          width="200"
-          show-overflow-tooltip
-        />
+          label="队列信息"
+          min-width="260"
+        >
+          <template #default="{ row }">
+            <div class="queue-info">
+              <div class="queue-title">{{ getQueueDisplayName(row) }}</div>
+              <div class="queue-subtitle">{{ formatQueueIdentifier(row.queue_name) }}</div>
+            </div>
+          </template>
+        </el-table-column>
         
         <el-table-column
           prop="priority"
           label="优先级"
-          width="100"
+          min-width="120"
           align="center"
         >
           <template #default="{ row }">
@@ -46,17 +44,21 @@
         
         <el-table-column
           label="任务统计"
-          width="180"
+          min-width="200"
           align="center"
         >
           <template #default="{ row }">
-            <span>{{ row.total_tasks }}/{{ row.completed_tasks }}/{{ row.pending_tasks }}</span>
+            <div class="task-breakdown">
+              <span>总 {{ row.total_tasks }}</span>
+              <span>完成 {{ row.completed_tasks }}</span>
+              <span>待审 {{ row.pending_tasks }}</span>
+            </div>
           </template>
         </el-table-column>
         
         <el-table-column
           label="进度"
-          width="120"
+          min-width="140"
           align="center"
         >
           <template #default="{ row }">
@@ -70,7 +72,7 @@
         
         <el-table-column
           label="状态"
-          width="100"
+          min-width="120"
           align="center"
         >
           <template #default="{ row }">
@@ -82,11 +84,21 @@
             </el-tag>
           </template>
         </el-table-column>
+
+        <el-table-column
+          label="创建人"
+          min-width="120"
+          align="center"
+        >
+          <template #default>
+            <span class="queue-owner">admin</span>
+          </template>
+        </el-table-column>
         
         <el-table-column
           prop="created_at"
           label="创建时间"
-          width="170"
+          min-width="180"
           show-overflow-tooltip
         >
           <template #default="{ row }">
@@ -96,7 +108,7 @@
         
         <el-table-column
           label="操作"
-          width="200"
+          min-width="220"
           align="center"
           fixed="right"
         >
@@ -104,6 +116,8 @@
             <el-button
               type="primary"
               size="small"
+              :disabled="!canAnnotate(row)"
+              :title="!canAnnotate(row) ? '队列暂无任务' : '进入标注工作台'"
               @click="handleAnnotate(row)"
             >
               标注
@@ -153,6 +167,24 @@ const pageSize = ref(20)
 const total = ref(0)
 
 // 方法
+const queueRouteMap: Record<string, string> = {
+  comment_first_review: '/reviewer/dashboard',
+  comment_second_review: '/reviewer/second-review',
+  quality_check: '/reviewer/quality-check',
+  video_first_review: '/reviewer/video-first-review',
+  video_second_review: '/reviewer/video-second-review',
+}
+
+const queueDisplayNameMap: Record<string, string> = {
+  comment_first_review: '评论一审队列',
+  comment_second_review: '评论二审队列',
+  quality_check: '质量检查队列',
+  video_first_review: '视频一审队列',
+  video_second_review: '视频二审队列',
+}
+
+const normalizeQueueName = (queueName: string) => queueName?.toLowerCase() || ''
+
 const calculateProgress = (row: TaskQueue) => {
   if (row.total_tasks === 0) return 0
   return Math.round((row.completed_tasks / row.total_tasks) * 100)
@@ -168,6 +200,40 @@ const getPriorityType = (priority: number) => {
   if (priority >= 80) return 'danger'
   if (priority >= 50) return 'warning'
   return 'info'
+}
+
+const formatQueueName = (queueName: string) => {
+  const normalized = normalizeQueueName(queueName)
+  if (queueDisplayNameMap[normalized]) {
+    return queueDisplayNameMap[normalized]
+  }
+  return queueName
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+const formatQueueIdentifier = (queueName: string) => {
+  return queueName.replace(/_/g, ' ').toUpperCase()
+}
+
+const getQueueDisplayName = (row: TaskQueue) => {
+  if (row.description && row.description.trim().length > 0) {
+    return row.description
+  }
+  return formatQueueName(row.queue_name)
+}
+
+const canAnnotate = (row: TaskQueue) => row.pending_tasks > 0
+
+const resolveQueueRoute = (queueName: string) => {
+  const normalized = normalizeQueueName(queueName)
+  if (queueRouteMap[normalized]) {
+    return queueRouteMap[normalized]
+  }
+  if (normalized.includes('video') && normalized.includes('queue')) {
+    return '/reviewer/video-queue-review'
+  }
+  return '/reviewer/dashboard'
 }
 
 const formatDate = (dateStr: string) => {
@@ -203,19 +269,13 @@ const handleRefresh = () => {
 }
 
 const handleAnnotate = (row: TaskQueue) => {
-  // 根据队列类型跳转到不同的审核界面
-  sessionStorage.setItem('currentQueue', JSON.stringify(row))
-  
-  // 根据队列名称判断跳转到哪个审核界面
-  if (row.queue_name === '评论审核二审') {
-    router.push('/reviewer/second-review')
-  } else if (row.queue_name === '评论一审质检队列') {
-    // 质检队列跳转到质检工作台
-    router.push('/reviewer/quality-check')
-  } else {
-    // 其他队列（包括一审队列）跳转到通用的一审审核界面
-    router.push('/reviewer/dashboard')
+  if (!canAnnotate(row)) {
+    ElMessage.warning('队列暂无任务，稍后再试')
+    return
   }
+
+  sessionStorage.setItem('currentQueue', JSON.stringify(row))
+  router.push(resolveQueueRoute(row.queue_name))
 }
 
 const handleViewDetails = (row: TaskQueue) => {
@@ -270,6 +330,38 @@ onMounted(() => {
   border-radius: var(--radius-lg);
   border: 1px solid rgba(204, 122, 77, 0.08);
   background-color: rgba(255, 255, 255, 0.9);
+}
+
+.queue-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+}
+
+.queue-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text-000);
+}
+
+.queue-subtitle {
+  font-size: var(--text-xs);
+  color: var(--color-text-400);
+  letter-spacing: var(--tracking-wide);
+}
+
+.task-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-text-200);
+}
+
+.queue-owner {
+  font-weight: 500;
+  color: var(--color-text-200);
 }
 
 .pagination-container {

@@ -12,7 +12,7 @@
 
     <!-- 权限列表（按分类分组） -->
     <div class="permission-list">
-      <el-collapse v-model="activeCategories" accordion>
+      <el-collapse v-model="activeCategories">
         <el-collapse-item
           v-for="(permissions, category) in groupedPermissions"
           :key="category"
@@ -32,16 +32,18 @@
               :label="permission.permission_key"
               class="permission-item"
             >
-              <el-tooltip
-                :content="permission.description"
-                placement="top"
-                :show-after="500"
-              >
-                <div class="permission-info">
-                  <span class="permission-name">{{ permission.name }}</span>
-                  <span class="permission-key">{{ permission.permission_key }}</span>
-                </div>
-              </el-tooltip>
+              <template #default>
+                <el-tooltip
+                  :content="permission.description"
+                  placement="top"
+                  :show-after="500"
+                >
+                  <div class="permission-info">
+                    <span class="permission-name">{{ permission.name }}</span>
+                    <span class="permission-key">{{ permission.permission_key }}</span>
+                  </div>
+                </el-tooltip>
+              </template>
             </el-checkbox>
           </el-checkbox-group>
         </el-collapse-item>
@@ -58,9 +60,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import type { Permission } from '@/api/permission'
+import type { Permission } from '../api/permission'
 
 const props = defineProps<{
   permissions: Permission[]
@@ -73,19 +75,11 @@ const emit = defineEmits<{
 
 const searchQuery = ref('')
 const activeCategories = ref<string[]>([])
-const selectedKeys = ref<string[]>([...props.modelValue])
-
-// 监听外部变化
-watch(
-  () => props.modelValue,
-  (newVal) => {
-    selectedKeys.value = [...newVal]
+const selectedKeys = computed<string[]>({
+  get: () => props.modelValue,
+  set: (value) => {
+    emit('update:modelValue', value)
   }
-)
-
-// 监听内部选择变化
-watch(selectedKeys, (newVal) => {
-  emit('update:modelValue', newVal)
 })
 
 // 过滤后的权限列表
@@ -179,6 +173,8 @@ const handleSearch = () => {
   padding: 8px;
   border-radius: 4px;
   transition: background-color 0.2s;
+  display: flex;
+  align-items: flex-start;
 }
 
 .permission-item:hover {
@@ -189,6 +185,8 @@ const handleSearch = () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .permission-name {
@@ -204,6 +202,11 @@ const handleSearch = () => {
 
 :deep(.el-checkbox__label) {
   width: 100%;
+  padding-left: 8px;
+}
+
+:deep(.el-checkbox__input) {
+  margin-top: 2px;
 }
 </style>
 

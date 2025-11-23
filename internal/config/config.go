@@ -13,11 +13,12 @@ type Config struct {
 	Port      string
 	JWTSecret string
 
-	// Redis Configuration
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
-	RedisUseTLS   bool
+    // Redis Configuration
+    RedisAddr     string
+    RedisPassword string
+    RedisDB       int
+    RedisUseTLS   bool
+    RedisTLSSkipVerify bool
 
 	// PostgreSQL Configuration
 	DatabaseURL string
@@ -52,7 +53,8 @@ func LoadConfig() *Config {
 	}
 
 	redisDB, _ := strconv.Atoi(getEnv("REDIS_DB", "0"))
-	redisUseTLS := getEnv("REDIS_USE_TLS", "false") == "true"
+    redisUseTLS := getEnv("REDIS_USE_TLS", "false") == "true"
+    redisTLSSkipVerify := getEnv("REDIS_TLS_SKIP_VERIFY", "false") == "true"
 	taskClaimSize, _ := strconv.Atoi(getEnv("TASK_CLAIM_SIZE", "20"))
 	taskTimeoutMinutes, _ := strconv.Atoi(getEnv("TASK_TIMEOUT_MINUTES", "30"))
 
@@ -68,13 +70,14 @@ func LoadConfig() *Config {
 		log.Printf("✅ DATABASE_URL loaded: %s", preview)
 	}
 
-	AppConfig = &Config{
+    AppConfig = &Config{
 		Port:               getEnv("PORT", "8080"),
 		JWTSecret:          getEnv("JWT_SECRET", "your-secret-key-change-this"),
 		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:      getEnv("REDIS_PASSWORD", ""),
 		RedisDB:            redisDB,
-		RedisUseTLS:        redisUseTLS,
+        RedisUseTLS:        redisUseTLS,
+        RedisTLSSkipVerify: redisTLSSkipVerify,
 		DatabaseURL:        databaseURL,
 		ResendAPIKey:       getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail:    getEnv("RESEND_FROM_EMAIL", "noreply@wangjiajun.asia"),

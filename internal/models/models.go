@@ -4,15 +4,15 @@ import "time"
 
 // User represents a user (reviewer or admin)
 type User struct {
-    ID            int       `json:"id"`
-    Username      string    `json:"username"`
-    Password      string    `json:"-"`                 // Never send password in JSON
-    Email         *string   `json:"email,omitempty"`   // Optional email
-    EmailVerified bool      `json:"email_verified"`    // Email verified flag
-    Role          string    `json:"role"`              // "reviewer" or "admin"
-    Status        string    `json:"status"`            // "pending", "approved", "rejected"
-    CreatedAt     time.Time `json:"created_at"`
-    UpdatedAt     time.Time `json:"updated_at"`
+	ID            int       `json:"id"`
+	Username      string    `json:"username"`
+	Password      string    `json:"-"`               // Never send password in JSON
+	Email         *string   `json:"email,omitempty"` // Optional email
+	EmailVerified bool      `json:"email_verified"`  // Email verified flag
+	Role          string    `json:"role"`            // "reviewer" or "admin"
+	Status        string    `json:"status"`          // "pending", "approved", "rejected"
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Comment represents a comment from the existing table
@@ -100,17 +100,95 @@ type ApproveUserRequest struct {
 }
 
 type StatsOverview struct {
-	TotalTasks      int            `json:"total_tasks"`
-	CompletedTasks  int            `json:"completed_tasks"`
-	ApprovedCount   int            `json:"approved_count"`
-	RejectedCount   int            `json:"rejected_count"`
-	ApprovalRate    float64        `json:"approval_rate"`
-	TotalReviewers  int            `json:"total_reviewers"`
-	ActiveReviewers int            `json:"active_reviewers"`
-	PendingTasks    int            `json:"pending_tasks"`
-	InProgressTasks int            `json:"in_progress_tasks"`
-	QueueStats      []QueueStats   `json:"queue_stats"`
-	QualityMetrics  QualityMetrics `json:"quality_metrics"`
+	// Comment review statistics (legacy fields for backward compatibility)
+	TotalTasks      int     `json:"total_tasks"`
+	CompletedTasks  int     `json:"completed_tasks"`
+	ApprovedCount   int     `json:"approved_count"`
+	RejectedCount   int     `json:"rejected_count"`
+	ApprovalRate    float64 `json:"approval_rate"`
+	PendingTasks    int     `json:"pending_tasks"`
+	InProgressTasks int     `json:"in_progress_tasks"`
+
+	// Reviewer statistics (across all review types)
+	TotalReviewers  int `json:"total_reviewers"`
+	ActiveReviewers int `json:"active_reviewers"`
+
+	// Detailed statistics by review type
+	CommentReviewStats CommentReviewStats `json:"comment_review_stats"`
+	VideoReviewStats   VideoReviewStats   `json:"video_review_stats"`
+
+	// Queue and quality metrics
+	QueueStats     []QueueStats   `json:"queue_stats"`
+	QualityMetrics QualityMetrics `json:"quality_metrics"`
+}
+
+// TodayReviewStats represents same-day review counts across review types
+type TodayReviewStats struct {
+	Comment TodayCommentReviewStats `json:"comment"`
+	Video   TodayVideoReviewStats   `json:"video"`
+}
+
+// TodayCommentReviewStats breaks down today's comment reviews
+type TodayCommentReviewStats struct {
+	Total        int `json:"total"`
+	FirstReview  int `json:"first_review"`
+	SecondReview int `json:"second_review"`
+}
+
+// TodayVideoReviewStats breaks down today's video reviews
+type TodayVideoReviewStats struct {
+	Total        int `json:"total"`
+	Queue        int `json:"queue"`
+	FirstReview  int `json:"first_review"`
+	SecondReview int `json:"second_review"`
+}
+
+// CommentReviewStats contains statistics for comment review
+type CommentReviewStats struct {
+	FirstReview struct {
+		TotalTasks      int     `json:"total_tasks"`
+		CompletedTasks  int     `json:"completed_tasks"`
+		PendingTasks    int     `json:"pending_tasks"`
+		InProgressTasks int     `json:"in_progress_tasks"`
+		ApprovedCount   int     `json:"approved_count"`
+		RejectedCount   int     `json:"rejected_count"`
+		ApprovalRate    float64 `json:"approval_rate"`
+	} `json:"first_review"`
+
+	SecondReview struct {
+		TotalTasks      int     `json:"total_tasks"`
+		CompletedTasks  int     `json:"completed_tasks"`
+		PendingTasks    int     `json:"pending_tasks"`
+		InProgressTasks int     `json:"in_progress_tasks"`
+		ApprovedCount   int     `json:"approved_count"`
+		RejectedCount   int     `json:"rejected_count"`
+		ApprovalRate    float64 `json:"approval_rate"`
+	} `json:"second_review"`
+}
+
+// VideoReviewStats contains statistics for video review
+type VideoReviewStats struct {
+	FirstReview struct {
+		TotalTasks      int     `json:"total_tasks"`
+		CompletedTasks  int     `json:"completed_tasks"`
+		PendingTasks    int     `json:"pending_tasks"`
+		InProgressTasks int     `json:"in_progress_tasks"`
+		ApprovedCount   int     `json:"approved_count"`
+		RejectedCount   int     `json:"rejected_count"`
+		ApprovalRate    float64 `json:"approval_rate"`
+		AvgOverallScore float64 `json:"avg_overall_score"` // Average quality score
+	} `json:"first_review"`
+
+	SecondReview struct {
+		TotalTasks      int     `json:"total_tasks"`
+		CompletedTasks  int     `json:"completed_tasks"`
+		PendingTasks    int     `json:"pending_tasks"`
+		InProgressTasks int     `json:"in_progress_tasks"`
+		ApprovedCount   int     `json:"approved_count"`
+		RejectedCount   int     `json:"rejected_count"`
+		ApprovalRate    float64 `json:"approval_rate"`
+		AvgOverallScore float64 `json:"avg_overall_score"` // Average quality score
+	} `json:"second_review"`
 }
 
 type QueueStats struct {
@@ -150,6 +228,36 @@ type TagStats struct {
 	Count   int    `json:"count"`
 }
 
+type VideoQualityTagStats struct {
+	TagName  string `json:"tag_name"`
+	Category string `json:"category"` // content_quality, technical_quality, compliance, engagement_potential
+	Count    int    `json:"count"`
+}
+
+type VideoQualityAnalysis struct {
+	// Average scores by dimension
+	AvgContentQuality      float64 `json:"avg_content_quality"`
+	AvgTechnicalQuality    float64 `json:"avg_technical_quality"`
+	AvgCompliance          float64 `json:"avg_compliance"`
+	AvgEngagementPotential float64 `json:"avg_engagement_potential"`
+	AvgOverallScore        float64 `json:"avg_overall_score"`
+
+	// Score distribution (ranges: 1-2, 3-4, 5-6, 7-8, 9-10)
+	ScoreDistribution map[string]int `json:"score_distribution"`
+
+	// Traffic pool recommendation distribution
+	TrafficPoolDistribution map[string]int `json:"traffic_pool_distribution"`
+
+	// Top quality tags by category
+	TopContentTags    []VideoQualityTagStats `json:"top_content_tags"`
+	TopTechnicalTags  []VideoQualityTagStats `json:"top_technical_tags"`
+	TopComplianceTags []VideoQualityTagStats `json:"top_compliance_tags"`
+	TopEngagementTags []VideoQualityTagStats `json:"top_engagement_tags"`
+
+	// Total videos analyzed
+	TotalVideos int `json:"total_videos"`
+}
+
 type ReviewerPerformance struct {
 	ReviewerID    int     `json:"reviewer_id"`
 	Username      string  `json:"username"`
@@ -157,6 +265,13 @@ type ReviewerPerformance struct {
 	ApprovedCount int     `json:"approved_count"`
 	RejectedCount int     `json:"rejected_count"`
 	ApprovalRate  float64 `json:"approval_rate"`
+
+	// Breakdown by review type
+	CommentFirstReviews  int `json:"comment_first_reviews"`
+	CommentSecondReviews int `json:"comment_second_reviews"`
+	QualityChecks        int `json:"quality_checks"`
+	VideoFirstReviews    int `json:"video_first_reviews"`
+	VideoSecondReviews   int `json:"video_second_reviews"`
 }
 
 type CreateTagRequest struct {
@@ -739,4 +854,94 @@ type ListPermissionsResponse struct {
 type UserPermissionsResponse struct {
 	UserID      int      `json:"user_id"`
 	Permissions []string `json:"permissions"`
+}
+
+// Video Queue Pool System Models (Refactored from First/Second Review)
+
+// VideoQueueTask represents a video review task in a specific traffic pool
+type VideoQueueTask struct {
+	ID          int          `json:"id"`
+	VideoID     int          `json:"video_id"`
+	Pool        string       `json:"pool"` // "100k", "1m", "10m"
+	ReviewerID  *int         `json:"reviewer_id"`
+	Status      string       `json:"status"` // "pending", "in_progress", "completed"
+	ClaimedAt   *time.Time   `json:"claimed_at"`
+	CompletedAt *time.Time   `json:"completed_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+	Video       *TikTokVideo `json:"video,omitempty"` // Optional joined data
+}
+
+// VideoQueueResult represents the simplified review result for a video queue task
+type VideoQueueResult struct {
+	ID             int       `json:"id"`
+	TaskID         int       `json:"task_id"`
+	ReviewerID     int       `json:"reviewer_id"`
+	ReviewDecision string    `json:"review_decision"` // "push_next_pool", "natural_pool", "remove_violation"
+	Reason         string    `json:"reason"`          // Required review reason
+	Tags           []string  `json:"tags"`            // Max 3 tags
+	CreatedAt      time.Time `json:"created_at"`
+	Reviewer       *User     `json:"reviewer,omitempty"` // Optional joined data
+}
+
+// Request/Response DTOs for Video Queue Pool System
+
+type ClaimVideoQueueTasksRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=50"`
+}
+
+type ClaimVideoQueueTasksResponse struct {
+	Tasks []VideoQueueTask `json:"tasks"`
+	Count int              `json:"count"`
+}
+
+type SubmitVideoQueueReviewRequest struct {
+	TaskID         int      `json:"task_id" binding:"required"`
+	ReviewDecision string   `json:"review_decision" binding:"required,oneof=push_next_pool natural_pool remove_violation"`
+	Reason         string   `json:"reason" binding:"required,min=1"`
+	Tags           []string `json:"tags" binding:"max=3"`
+}
+
+type BatchSubmitVideoQueueReviewRequest struct {
+	Reviews []SubmitVideoQueueReviewRequest `json:"reviews" binding:"required,dive"`
+}
+
+type ReturnVideoQueueTasksRequest struct {
+	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
+}
+
+// VideoQueueTag represents a tag for video queue review (with scope and queue_id)
+type VideoQueueTag struct {
+	ID          int       `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"` // 'content', 'technical', 'compliance', 'engagement'
+	Scope       string    `json:"scope"`    // 'video'
+	QueueID     *string   `json:"queue_id"` // '100k', '1m', '10m' or NULL for all queues
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type GetVideoQueueTagsRequest struct {
+	Pool string `form:"pool" binding:"required,oneof=100k 1m 10m"`
+}
+
+type GetVideoQueueTagsResponse struct {
+	Tags []VideoQueueTag `json:"tags"`
+}
+
+// Video Queue Statistics
+type VideoQueuePoolStats struct {
+	Pool                  string  `json:"pool"`
+	TotalTasks            int     `json:"total_tasks"`
+	CompletedTasks        int     `json:"completed_tasks"`
+	PendingTasks          int     `json:"pending_tasks"`
+	InProgressTasks       int     `json:"in_progress_tasks"`
+	AvgProcessTimeMinutes float64 `json:"avg_process_time_minutes"`
+}
+
+type VideoQueueDecisionStats struct {
+	Pool               string  `json:"pool"`
+	ReviewDecision     string  `json:"review_decision"`
+	DecisionCount      int     `json:"decision_count"`
+	DecisionPercentage float64 `json:"decision_percentage"`
 }

@@ -28,7 +28,7 @@ func main() {
 	defer database.Close()
 
 	// Initialize Redis
-	_, err = redispkg.InitRedis(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.RedisUseTLS)
+	_, err = redispkg.InitRedis(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.RedisUseTLS, cfg.RedisTLSSkipVerify)
 	if err != nil {
 		log.Fatalf("❌ Failed to connect to Redis: %v", err)
 	}
@@ -103,6 +103,9 @@ func setupRouter(db interface{}) *gin.Engine {
 		videoHandler = nil
 	}
 
+	// Initialize video queue handler
+	videoQueueHandler := handlers.NewVideoQueueHandler()
+
 	// Type assert database connection
 	sqlDB, ok := db.(*sql.DB)
 	if !ok {
@@ -139,6 +142,9 @@ func setupRouter(db interface{}) *gin.Engine {
 			modRules.GET("/categories", moderationRulesHandler.GetCategories)
 			modRules.GET("/risk-levels", moderationRulesHandler.GetRiskLevels)
 		}
+
+		// Shared statistics routes (accessible to authenticated users)
+		api.GET("/stats/today", middleware.AuthMiddleware(), adminHandler.GetTodayReviewStats)
 
 		// Task routes (requires specific queue permissions)
 		tasks := api.Group("/tasks")
@@ -182,6 +188,60 @@ func setupRouter(db interface{}) *gin.Engine {
 				tasks.POST("/video-second-review/submit-batch", middleware.RequirePermission("tasks:video-second-review:submit"), videoHandler.SubmitBatchVideoSecondReviews)
 				tasks.POST("/video-second-review/return", middleware.RequirePermission("tasks:video-second-review:return"), videoHandler.ReturnVideoSecondReviewTasks)
 			}
+		}
+
+		// Video Queue Pool System routes (new single-stage queue system)
+		video := api.Group("/video")
+		video.Use(middleware.AuthMiddleware())
+		{
+			// Routes for each pool: 100k, 1m, 10m
+			video.POST("/:pool/tasks/claim", func(c *gin.Context) {
+				pool := c.Param("pool")
+				middleware.RequirePermission("queue.video." + pool + ".claim")(c)
+				if c.IsAborted() {
+					return
+				}
+				videoQueueHandler.ClaimTasks(c)
+			})
+
+			video.GET("/:pool/tasks/my", func(c *gin.Context) {
+				pool := c.Param("pool")
+				middleware.RequirePermission("queue.video." + pool + ".my")(c)
+				if c.IsAborted() {
+					return
+				}
+				videoQueueHandler.GetMyTasks(c)
+			})
+
+			video.POST("/:pool/tasks/submit", func(c *gin.Context) {
+				pool := c.Param("pool")
+				middleware.RequirePermission("queue.video." + pool + ".submit")(c)
+				if c.IsAborted() {
+					return
+				}
+				videoQueueHandler.SubmitReview(c)
+			})
+
+			video.POST("/:pool/tasks/submit-batch", func(c *gin.Context) {
+				pool := c.Param("pool")
+				middleware.RequirePermission("queue.video." + pool + ".submit")(c)
+				if c.IsAborted() {
+					return
+				}
+				videoQueueHandler.SubmitBatchReviews(c)
+			})
+
+			video.POST("/:pool/tasks/return", func(c *gin.Context) {
+				pool := c.Param("pool")
+				middleware.RequirePermission("queue.video." + pool + ".return")(c)
+				if c.IsAborted() {
+					return
+				}
+				videoQueueHandler.ReturnTasks(c)
+			})
+
+			// Get tags for a specific pool
+			video.GET("/:pool/tags", videoQueueHandler.GetTags)
 		}
 
 		// Search route (requires search permission)
@@ -236,15 +296,24 @@ func setupRouter(db interface{}) *gin.Engine {
 
 			// Statistics
 			admin.GET("/stats/overview", middleware.RequirePermission("stats:overview"), adminHandler.GetOverviewStats)
+			admin.GET("/stats/today", middleware.RequirePermission("stats:overview"), adminHandler.GetTodayReviewStats)
 			admin.GET("/stats/hourly", middleware.RequirePermission("stats:hourly"), adminHandler.GetHourlyStats)
 			admin.GET("/stats/tags", middleware.RequirePermission("stats:tags"), adminHandler.GetTagStats)
 			admin.GET("/stats/reviewers", middleware.RequirePermission("stats:reviewers"), adminHandler.GetReviewerPerformance)
 
-			// Tag management
+			// Tag management (comment tags)
 			admin.GET("/tags", middleware.RequirePermission("tags:list"), adminHandler.GetAllTags)
 			admin.POST("/tags", middleware.RequirePermission("tags:create"), adminHandler.CreateTag)
 			admin.PUT("/tags/:id", middleware.RequirePermission("tags:update"), adminHandler.UpdateTag)
 			admin.DELETE("/tags/:id", middleware.RequirePermission("tags:delete"), adminHandler.DeleteTag)
+
+			// Video Quality Tag management (video queue tags)
+			videoTagHandler := handlers.NewVideoTagHandler()
+			admin.GET("/video-tags", middleware.RequirePermission("tags:list"), videoTagHandler.GetAllVideoTags)
+			admin.POST("/video-tags", middleware.RequirePermission("tags:create"), videoTagHandler.CreateVideoTag)
+			admin.PUT("/video-tags/:id", middleware.RequirePermission("tags:update"), videoTagHandler.UpdateVideoTag)
+			admin.DELETE("/video-tags/:id", middleware.RequirePermission("tags:delete"), videoTagHandler.DeleteVideoTag)
+			admin.PATCH("/video-tags/:id/toggle", middleware.RequirePermission("tags:update"), videoTagHandler.ToggleVideoTagActive)
 
 			// Moderation Rules management
 			admin.POST("/moderation-rules", middleware.RequirePermission("moderation-rules:create"), moderationRulesHandler.CreateRule)
@@ -268,6 +337,9 @@ func setupRouter(db interface{}) *gin.Engine {
 				admin.GET("/videos", middleware.RequirePermission("videos:list"), videoHandler.ListVideos)
 				admin.GET("/videos/:id", middleware.RequirePermission("videos:read"), videoHandler.GetVideo)
 			}
+
+			// Video Queue Pool statistics (admin only)
+			admin.GET("/video-queue/:pool/stats", middleware.RequirePermission("stats:overview"), videoQueueHandler.GetPoolStats)
 		}
 	}
 
@@ -298,6 +370,7 @@ func startTaskReleaseWorker() {
 	qcService := services.NewQualityCheckService()
 	videoFirstReviewService := services.NewVideoFirstReviewService()
 	videoSecondReviewService := services.NewVideoSecondReviewService()
+	videoQueueService := services.NewVideoQueueService()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -318,6 +391,10 @@ func startTaskReleaseWorker() {
 		}
 		if err := videoSecondReviewService.ReleaseExpiredSecondReviewTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired video second review tasks: %v", err)
+		}
+		// Release expired video queue tasks (all pools)
+		if err := videoQueueService.ReleaseAllExpiredTasks(); err != nil {
+			log.Printf("⚠️ Error releasing expired video queue tasks: %v", err)
 		}
 	}
 }

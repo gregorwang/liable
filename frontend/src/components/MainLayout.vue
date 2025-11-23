@@ -19,7 +19,15 @@
         
         <div class="header-right">
           <div class="stats-info">
-            <span class="today-count">今日审核：{{ todayReviewCount }}</span>
+            <span v-if="statsLoading">今日审核统计加载中...</span>
+            <span v-else-if="statsError">今日审核统计获取失败</span>
+            <template v-else>
+              <span class="today-label">今日审核评论：</span>
+              <span class="today-count">{{ todayCommentCount }}</span>
+              <span class="stats-divider">/</span>
+              <span class="today-label">视频：</span>
+              <span class="today-count">{{ todayVideoCount }}</span>
+            </template>
           </div>
           
           <el-badge :value="notificationStore.unreadCount" :hidden="notificationStore.unreadCount === 0" class="notification-badge">
@@ -115,16 +123,24 @@
               <el-icon><VideoPlay /></el-icon>
               <span>视频审核</span>
             </template>
-            
+
+            <el-menu-item index="video-queue-review">
+              <el-icon><TrendCharts /></el-icon>
+              <template #title>视频审核工作台</template>
+            </el-menu-item>
+
+            <!-- 旧系统已弃用：视频一审和视频二审已迁移到流量池系统 -->
+            <!-- 
             <el-menu-item index="video-first-review">
               <el-icon><VideoCamera /></el-icon>
               <template #title>视频一审</template>
             </el-menu-item>
-            
+
             <el-menu-item index="video-second-review">
               <el-icon><VideoCameraFilled /></el-icon>
               <template #title>视频二审</template>
             </el-menu-item>
+            -->
           </el-sub-menu>
           
           <!-- 仅管理员可见的菜单项 -->
@@ -153,7 +169,12 @@
               
               <el-menu-item index="admin-tag-management">
                 <el-icon><PriceTag /></el-icon>
-                <template #title>标签管理</template>
+                <template #title>评论标签管理</template>
+              </el-menu-item>
+
+              <el-menu-item index="admin-video-tag-management">
+                <el-icon><VideoPlay /></el-icon>
+                <template #title>视频标签管理</template>
               </el-menu-item>
               
               <el-menu-item index="admin-queue-management">
@@ -228,6 +249,8 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { useNotificationStore } from '../stores/notification'
+import { getTodayReviewStats } from '../api/admin'
+import type { TodayReviewStats } from '../types'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -255,11 +278,13 @@ const asyncComponents: Record<string, any> = {
   'admin-user-management': defineAsyncComponent(() => import('../views/admin/UserManage.vue')),
   'admin-statistics': defineAsyncComponent(() => import('../views/admin/Statistics.vue')),
   'admin-tag-management': defineAsyncComponent(() => import('../views/admin/TagManage.vue')),
+  'admin-video-tag-management': defineAsyncComponent(() => import('../views/admin/VideoTagManage.vue')),
   'admin-queue-management': defineAsyncComponent(() => import('../views/admin/QueueManage.vue')),
   'admin-video-import': defineAsyncComponent(() => import('../views/admin/VideoImport.vue')),
   'permission-management': defineAsyncComponent(() => import('../views/admin/PermissionManage.vue')),
   
   // 视频审核组件
+  'video-queue-review': defineAsyncComponent(() => import('../views/reviewer/VideoQueueReviewDashboard.vue')),
   'video-first-review': defineAsyncComponent(() => import('../views/reviewer/VideoFirstReviewDashboard.vue')),
   'video-second-review': defineAsyncComponent(() => import('../views/reviewer/VideoSecondReviewDashboard.vue')),
 }
@@ -269,10 +294,14 @@ const isCollapsed = ref(false)
 const activeMenu = ref('queue-list')
 
 // 统计数据
-const todayReviewCount = ref(0)
+const todayStats = ref<TodayReviewStats | null>(null)
+const statsLoading = ref(false)
+const statsError = ref(false)
 
 // 计算属性
 const sidebarWidth = computed(() => isCollapsed.value ? '64px' : '200px')
+const todayCommentCount = computed(() => todayStats.value?.comment.total ?? 0)
+const todayVideoCount = computed(() => todayStats.value?.video.total ?? 0)
 
 // 当前显示的组件
 const currentComponent = computed(() => {
@@ -349,10 +378,22 @@ const formatTime = (dateString: string) => {
   return date.toLocaleDateString('zh-CN')
 }
 
+const loadTodayStats = async () => {
+  statsLoading.value = true
+  statsError.value = false
+  try {
+    todayStats.value = await getTodayReviewStats()
+  } catch (error) {
+    console.error('Failed to load today review stats', error)
+    statsError.value = true
+  } finally {
+    statsLoading.value = false
+  }
+}
+
 onMounted(() => {
-  // 模拟获取今日审核数量
-  todayReviewCount.value = Math.floor(Math.random() * 100) + 50
-  
+  loadTodayStats()
+
   // Initialize notification system
   notificationStore.init()
 })
@@ -420,11 +461,25 @@ onMounted(() => {
   font-size: var(--text-sm);
   color: var(--color-text-300);
   font-family: var(--font-sans);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
 }
 
 .today-count {
   font-weight: 500;
   color: var(--color-accent-main);
+  font-size: var(--text-sm);
+}
+
+.today-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-400);
+}
+
+.stats-divider {
+  color: var(--color-text-300);
+  font-size: var(--text-xs);
 }
 
 .notification-badge {

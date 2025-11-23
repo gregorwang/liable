@@ -20,6 +20,9 @@ func NewTaskQueueRepository() *TaskQueueRepository {
 }
 
 // CreateTaskQueue creates a new task queue
+// DEPRECATED: The task_queues table is deprecated in favor of unified_queue_stats view.
+// This method is kept for backward compatibility but should not be used for new code.
+// All queues are now automatically tracked through the unified_queue_stats view.
 func (r *TaskQueueRepository) CreateTaskQueue(req models.CreateTaskQueueRequest, adminID int) (*models.TaskQueue, error) {
 	query := `
 		INSERT INTO task_queues (queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at)
@@ -90,7 +93,7 @@ func (r *TaskQueueRepository) GetTaskQueueByID(id int) (*models.TaskQueue, error
 	return &queue, nil
 }
 
-// ListTaskQueues returns paginated task queues with real-time statistics
+// ListTaskQueues returns paginated task queues with real-time statistics from unified_queue_stats
 func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) ([]models.TaskQueue, int, error) {
 	// Build WHERE clause
 	var conditions []string
@@ -114,19 +117,29 @@ func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) (
 		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	// Count total records from the view
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM queue_stats %s", whereClause)
+	// Count total records from the unified view
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM unified_queue_stats %s", whereClause)
 	var total int
 	err := r.db.QueryRow(countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count task queues: %w", err)
 	}
 
-	// Get paginated results from the view with real-time statistics
+	// Get paginated results from the unified view with real-time statistics
 	offset := (req.Page - 1) * req.PageSize
 	query := fmt.Sprintf(`
-		SELECT queue_id as id, queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at
-		FROM queue_stats
+		SELECT
+			ROW_NUMBER() OVER (ORDER BY priority DESC) as id,
+			queue_name,
+			description,
+			priority,
+			total_tasks,
+			completed_tasks,
+			pending_tasks,
+			is_active,
+			created_at,
+			updated_at
+		FROM unified_queue_stats
 		%s
 		ORDER BY priority DESC, created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -170,6 +183,8 @@ func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) (
 }
 
 // UpdateTaskQueue updates a task queue
+// DEPRECATED: Manual queue updates are deprecated. Queue statistics are now automatically
+// calculated from actual task tables via the unified_queue_stats view.
 func (r *TaskQueueRepository) UpdateTaskQueue(id int, req models.UpdateTaskQueueRequest, adminID int) (*models.TaskQueue, error) {
 	// Get existing queue first
 	queue, err := r.GetTaskQueueByID(id)
@@ -228,6 +243,8 @@ func (r *TaskQueueRepository) UpdateTaskQueue(id int, req models.UpdateTaskQueue
 }
 
 // DeleteTaskQueue deletes a task queue
+// DEPRECATED: Manual queue deletion is deprecated. Queues are now automatically
+// managed through the unified_queue_stats view based on actual task tables.
 func (r *TaskQueueRepository) DeleteTaskQueue(id int) error {
 	query := "DELETE FROM task_queues WHERE id = $1"
 	result, err := r.db.Exec(query, id)
@@ -247,11 +264,21 @@ func (r *TaskQueueRepository) DeleteTaskQueue(id int) error {
 	return nil
 }
 
-// GetAllTaskQueues returns all task queues with real-time statistics
+// GetAllTaskQueues returns all task queues with real-time statistics from unified_queue_stats
 func (r *TaskQueueRepository) GetAllTaskQueues() ([]models.TaskQueue, error) {
 	query := `
-		SELECT queue_id as id, queue_name, description, priority, total_tasks, completed_tasks, pending_tasks, is_active, created_at, updated_at
-		FROM queue_stats
+		SELECT
+			ROW_NUMBER() OVER (ORDER BY priority DESC) as id,
+			queue_name,
+			description,
+			priority,
+			total_tasks,
+			completed_tasks,
+			pending_tasks,
+			is_active,
+			created_at,
+			updated_at
+		FROM unified_queue_stats
 		ORDER BY priority DESC, created_at DESC
 	`
 

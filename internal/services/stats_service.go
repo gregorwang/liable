@@ -20,6 +20,11 @@ func (s *StatsService) GetOverviewStats() (*models.StatsOverview, error) {
 	return s.statsRepo.GetOverviewStats()
 }
 
+// GetTodayReviewStats retrieves today's review counts
+func (s *StatsService) GetTodayReviewStats() (*models.TodayReviewStats, error) {
+	return s.statsRepo.GetTodayReviewStats()
+}
+
 // GetHourlyStats retrieves hourly statistics for a specific date
 func (s *StatsService) GetHourlyStats(date string) (*models.HourlyStats, error) {
 	items, err := s.statsRepo.GetHourlyStats(date)
@@ -46,3 +51,12 @@ func (s *StatsService) GetReviewerPerformance(limit int) ([]models.ReviewerPerfo
 	return s.statsRepo.GetReviewerPerformance(limit)
 }
 
+// GetVideoQualityTagStats retrieves video quality tag statistics
+func (s *StatsService) GetVideoQualityTagStats() ([]models.VideoQualityTagStats, error) {
+	return s.statsRepo.GetVideoQualityTagStats()
+}
+
+// GetVideoQualityAnalysis retrieves comprehensive video quality analysis
+func (s *StatsService) GetVideoQualityAnalysis() (*models.VideoQualityAnalysis, error) {
+	return s.statsRepo.GetVideoQualityAnalysis()
+}

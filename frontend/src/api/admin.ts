@@ -8,6 +8,7 @@ import type {
   ReviewerPerformance,
   TaskQueue,
   ListTaskQueuesResponse,
+  TodayReviewStats,
 } from '../types'
 
 /**
@@ -38,6 +39,13 @@ export function approveUser(userId: number, status: 'approved' | 'rejected') {
  */
 export function getOverviewStats() {
   return request.get<any, OverviewStats>('/admin/stats/overview')
+}
+
+/**
+ * Get today's review statistics
+ */
+export function getTodayReviewStats() {
+  return request.get<any, TodayReviewStats>('/admin/stats/today')
 }
 
 /**

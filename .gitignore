@@ -28,3 +28,33 @@ go.work
 .DS_Store
 Thumbs.db
 
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+build/
+bin/
+dist/
+frontend/dist/
+
+# Logs
+*.log
+logs/
+
+# IDE and editor files
+.claude/
+.history/
+*.swp
+*.swo
+
+# Environment and config
+.env
+.env.local
+.env.*.local
+.mcp.json
+
+# Temporary files
+*.tmp
+*.temp
+

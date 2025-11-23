@@ -64,17 +64,50 @@ export interface TagsResponse {
 }
 
 export interface OverviewStats {
+  // Legacy fields for backward compatibility
   total_tasks: number
   completed_tasks: number
   approved_count: number
   rejected_count: number
   approval_rate: number
-  total_reviewers: number
-  active_reviewers: number
   pending_tasks: number
   in_progress_tasks: number
+
+  // Reviewer statistics
+  total_reviewers: number
+  active_reviewers: number
+
+  // Detailed statistics by review type
+  comment_review_stats: CommentReviewStats
+  video_review_stats: VideoReviewStats
+
+  // Queue and quality metrics
   queue_stats: QueueStats[]
   quality_metrics: QualityMetrics
+}
+
+export interface ReviewStats {
+  total_tasks: number
+  completed_tasks: number
+  pending_tasks: number
+  in_progress_tasks: number
+  approved_count: number
+  rejected_count: number
+  approval_rate: number
+}
+
+export interface VideoReviewStatsDetail extends ReviewStats {
+  avg_overall_score: number
+}
+
+export interface CommentReviewStats {
+  first_review: ReviewStats
+  second_review: ReviewStats
+}
+
+export interface VideoReviewStats {
+  first_review: VideoReviewStatsDetail
+  second_review: VideoReviewStatsDetail
 }
 
 export interface QueueStats {
@@ -99,6 +132,20 @@ export interface QualityMetrics {
   second_review_rate: number
 }
 
+export interface TodayReviewStats {
+  comment: {
+    total: number
+    first_review: number
+    second_review: number
+  }
+  video: {
+    total: number
+    queue: number
+    first_review: number
+    second_review: number
+  }
+}
+
 export interface HourlyStats {
   hour: number
   count: number
@@ -117,6 +164,13 @@ export interface ReviewerPerformance {
   approved_count: number
   rejected_count: number
   approval_rate: number
+
+  // Breakdown by review type
+  comment_first_reviews: number
+  comment_second_reviews: number
+  quality_checks: number
+  video_first_reviews: number
+  video_second_reviews: number
 }
 
 export interface ApiResponse<T = any> {

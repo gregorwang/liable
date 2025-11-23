@@ -509,11 +509,12 @@ onMounted(() => {
 
 .task-body {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 24px;
 }
 
 .video-section {
+  flex: 0 0 45%;
   min-height: 300px;
 }
 
@@ -522,6 +523,10 @@ onMounted(() => {
   color: #333;
   font-size: 16px;
   font-weight: 500;
+}
+
+.comparison-section {
+  flex: 1;
 }
 
 .comparison-section h4 {
@@ -610,6 +615,10 @@ onMounted(() => {
   line-height: 1.4;
 }
 
+.review-section {
+  flex: 1;
+}
+
 .review-section h4 {
   margin: 0 0 16px 0;
   color: #333;
@@ -619,6 +628,14 @@ onMounted(() => {
 
 /* Responsive design */
 @media (max-width: 1200px) {
+  .task-body {
+    flex-direction: column;
+  }
+  
+  .video-section {
+    flex: 1;
+  }
+  
   .comparison-grid {
     grid-template-columns: 1fr;
   }
