@@ -1,4 +1,5 @@
 import request from './request'
+import type { VideoQueueTag } from '../types'
 
 // Types for Video Queue Pool System
 
@@ -30,16 +31,8 @@ export interface VideoQueueTask {
   }
 }
 
-export interface VideoQueueTag {
-  id: number
-  name: string
-  description: string
-  category: 'content' | 'technical' | 'compliance' | 'engagement'
-  scope: string
-  queue_id: string | null
-  is_active: boolean
-  created_at: string
-}
+// Re-export VideoQueueTag from types
+export type { VideoQueueTag }
 
 export interface ClaimVideoQueueTasksRequest {
   count: number

@@ -67,13 +67,31 @@ func (h *AdminHandler) ApproveUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "User status updated successfully"})
 }
 
-// GetOverviewStats retrieves overall statistics
+// GetOverviewStats retrieves overall statistics with optional cache refresh
 func (h *AdminHandler) GetOverviewStats(c *gin.Context) {
-	stats, err := h.statsService.GetOverviewStats()
+	// Check if force refresh is requested
+	refresh := c.Query("refresh") == "true"
+
+	var stats *models.StatsOverview
+	var err error
+
+	if refresh {
+		stats, err = h.statsService.RefreshOverviewStats()
+	} else {
+		stats, err = h.statsService.GetOverviewStats()
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Add cache status header
+	cacheStatus := "MISS"
+	if refresh {
+		cacheStatus = "REFRESHED"
+	}
+	c.Header("X-Cache-Status", cacheStatus)
 
 	c.JSON(http.StatusOK, stats)
 }

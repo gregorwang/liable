@@ -81,14 +81,14 @@ export function useSSE(): UseSSEReturn {
         console.error('SSE connection error:', event)
         isConnected.value = false
         error.value = 'Connection error'
-        
-        // Attempt to reconnect after 5 seconds
+
+        // Attempt to reconnect after 30 seconds (reduced from 5s to avoid spam)
         setTimeout(() => {
           if (!isConnected.value) {
-            // Attempting to reconnect SSE
+            console.log('Attempting to reconnect SSE...')
             connect()
           }
-        }, 5000)
+        }, 30000)
       }
 
     } catch (err) {

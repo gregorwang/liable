@@ -30,37 +30,48 @@ func NewVideoQueueService() *VideoQueueService {
 
 // ClaimTasks allows a reviewer to claim tasks from a specific pool
 func (s *VideoQueueService) ClaimTasks(pool string, reviewerID int, count int) ([]models.VideoQueueTask, error) {
+	log.Printf("📋 [DEBUG] ClaimTasks START: pool=%s, reviewerID=%d, count=%d", pool, reviewerID, count)
+
 	// Validate pool
+	log.Printf("📋 [DEBUG] ClaimTasks Step 1: Validate pool")
 	if !isValidPool(pool) {
 		return nil, errors.New("invalid pool: must be 100k, 1m, or 10m")
 	}
 
 	// Validate count (1-50)
+	log.Printf("📋 [DEBUG] ClaimTasks Step 2: Validate count")
 	if count < 1 || count > 50 {
 		return nil, errors.New("claim count must be between 1 and 50")
 	}
 
 	// Check if user already has uncompleted tasks in this pool
-	existingTasks, err := s.queueRepo.GetMyQueueTasks(pool, reviewerID)
+	log.Printf("📋 [DEBUG] ClaimTasks Step 3: Check existing tasks (DB count)")
+	existingCount, err := s.queueRepo.CountMyQueueTasks(pool, reviewerID)
 	if err != nil {
+		log.Printf("📋 [ERROR] CountMyQueueTasks failed: %v", err)
 		return nil, err
 	}
 
-	if len(existingTasks) > 0 {
-		return nil, fmt.Errorf("you still have %d uncompleted tasks in %s pool, please complete or return them first", len(existingTasks), pool)
+	if existingCount > 0 {
+		log.Printf("📋 [User already has tasks] count=%d, pool=%s", existingCount, pool)
+		return nil, fmt.Errorf("you still have %d uncompleted tasks in %s pool, please complete or return them first", existingCount, pool)
 	}
 
 	// Claim tasks from database
+	log.Printf("📋 [DEBUG] ClaimTasks Step 4: Claim tasks from DB (transaction with lock)")
 	tasks, err := s.queueRepo.ClaimQueueTasks(pool, reviewerID, count)
 	if err != nil {
+		log.Printf("📋 [ERROR] ClaimQueueTasks failed: %v", err)
 		return nil, err
 	}
 
 	if len(tasks) == 0 {
+		log.Printf("📋 [INFO] No pending tasks available")
 		return []models.VideoQueueTask{}, nil
 	}
 
 	// Add tasks to Redis for tracking
+	log.Printf("📋 [DEBUG] ClaimTasks Step 5: Add to Redis pipeline (%d tasks)", len(tasks))
 	userClaimedKey := fmt.Sprintf("video:claimed:%d:%s", reviewerID, pool)
 	timeout := time.Duration(config.AppConfig.TaskTimeoutMinutes) * time.Minute
 
@@ -75,11 +86,16 @@ func (s *VideoQueueService) ClaimTasks(pool string, reviewerID int, count int) (
 	}
 	pipe.Expire(s.ctx, userClaimedKey, timeout)
 
+	log.Printf("📋 [DEBUG] ClaimTasks Step 6: Execute Redis pipeline")
+	startTime := time.Now()
 	_, err = pipe.Exec(s.ctx)
+	redisDuration := time.Since(startTime)
+	log.Printf("📋 [DEBUG] Redis pipeline executed in %v", redisDuration)
 	if err != nil {
-		log.Printf("Redis error when claiming video queue tasks: %v", err)
+		log.Printf("📋 [ERROR] Redis error when claiming video queue tasks: %v", err)
 	}
 
+	log.Printf("📋 [DEBUG] ClaimTasks END: claimed %d tasks", len(tasks))
 	return tasks, nil
 }
 
@@ -179,7 +195,7 @@ func (s *VideoQueueService) ReturnTasks(pool string, reviewerID int, taskIDs []i
 	}
 
 	if returnedCount == 0 {
-		return 0, errors.New("no tasks were returned, please check if the tasks belong to you")
+		return 0, errors.New("no tasks were returned, please check if tasks belong to you")
 	}
 
 	// Clean up Redis
@@ -289,7 +305,7 @@ func (s *VideoQueueService) handleQueueFlow(currentPool string, videoID int, dec
 	}
 }
 
-// GetTags retrieves available tags for a specific pool
+// GetTags retrieves retrieves available tags for a specific pool
 func (s *VideoQueueService) GetTags(pool string) ([]models.VideoQueueTag, error) {
 	if !isValidPool(pool) {
 		return nil, errors.New("invalid pool: must be 100k, 1m, or 10m")

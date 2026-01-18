@@ -16,13 +16,14 @@ type Claims struct {
 
 // GenerateToken generates a JWT token for a user
 func GenerateToken(userID int, username, role, secret string) (string, error) {
+	now := time.Now()
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
 		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 
@@ -49,4 +50,3 @@ func ValidateToken(tokenString, secret string) (*Claims, error) {
 
 	return nil, errors.New("invalid token")
 }
-

@@ -19,6 +19,39 @@ func NewVideoQueueRepository() *VideoQueueRepository {
 	}
 }
 
+func scanVideoQueueTaskWithVideo(rows *sql.Rows) (models.VideoQueueTask, error) {
+	var task models.VideoQueueTask
+	var video models.TikTokVideo
+
+	err := rows.Scan(
+		&task.ID,
+		&task.VideoID,
+		&task.Pool,
+		&task.ReviewerID,
+		&task.Status,
+		&task.ClaimedAt,
+		&task.CompletedAt,
+		&task.CreatedAt,
+		&video.ID,
+		&video.VideoKey,
+		&video.Filename,
+		&video.FileSize,
+		&video.Duration,
+		&video.UploadTime,
+		&video.VideoURL,
+		&video.URLExpiresAt,
+		&video.Status,
+		&video.CreatedAt,
+		&video.UpdatedAt,
+	)
+	if err != nil {
+		return models.VideoQueueTask{}, err
+	}
+
+	task.Video = &video
+	return task, nil
+}
+
 // CreateQueueTask creates a new video queue task for a specific pool
 func (r *VideoQueueRepository) CreateQueueTask(videoID int, pool string) error {
 	query := `
@@ -38,20 +71,27 @@ func (r *VideoQueueRepository) ClaimQueueTasks(pool string, reviewerID int, coun
 	}
 	defer tx.Rollback()
 
-	// Lock and claim tasks
 	query := `
-		UPDATE video_queue_tasks
-		SET status = 'in_progress',
-		    reviewer_id = $1,
-		    claimed_at = NOW()
-		WHERE id IN (
-			SELECT id FROM video_queue_tasks
-			WHERE pool = $2 AND status = 'pending'
-			ORDER BY created_at ASC
-			LIMIT $3
-			FOR UPDATE SKIP LOCKED
+		WITH claimed AS (
+			UPDATE video_queue_tasks
+			SET status = 'in_progress',
+			    reviewer_id = $1,
+			    claimed_at = NOW()
+			WHERE id IN (
+				SELECT id FROM video_queue_tasks
+				WHERE pool = $2 AND status = 'pending'
+				ORDER BY created_at ASC
+				LIMIT $3
+				FOR UPDATE SKIP LOCKED
+			)
+			RETURNING id, video_id, pool, reviewer_id, status, claimed_at, completed_at, created_at
 		)
-		RETURNING id, video_id, pool, reviewer_id, status, claimed_at, completed_at, created_at
+		SELECT
+			c.id, c.video_id, c.pool, c.reviewer_id, c.status, c.claimed_at, c.completed_at, c.created_at,
+			v.id, v.video_key, v.filename, v.file_size, v.duration, v.upload_time,
+			v.video_url, v.url_expires_at, v.status, v.created_at, v.updated_at
+		FROM claimed c
+		JOIN tiktok_videos v ON v.id = c.video_id
 	`
 
 	rows, err := tx.Query(query, reviewerID, pool, count)
@@ -62,33 +102,18 @@ func (r *VideoQueueRepository) ClaimQueueTasks(pool string, reviewerID int, coun
 
 	var tasks []models.VideoQueueTask
 	for rows.Next() {
-		var task models.VideoQueueTask
-		err := rows.Scan(
-			&task.ID,
-			&task.VideoID,
-			&task.Pool,
-			&task.ReviewerID,
-			&task.Status,
-			&task.ClaimedAt,
-			&task.CompletedAt,
-			&task.CreatedAt,
-		)
+		task, err := scanVideoQueueTaskWithVideo(rows)
 		if err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
 	}
-
-	if err := tx.Commit(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Load video data for each task
-	for i := range tasks {
-		video, err := r.getVideoByID(tasks[i].VideoID)
-		if err == nil {
-			tasks[i].Video = video
-		}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 
 	return tasks, nil
@@ -97,10 +122,14 @@ func (r *VideoQueueRepository) ClaimQueueTasks(pool string, reviewerID int, coun
 // GetMyQueueTasks retrieves in-progress tasks for a reviewer in a specific pool
 func (r *VideoQueueRepository) GetMyQueueTasks(pool string, reviewerID int) ([]models.VideoQueueTask, error) {
 	query := `
-		SELECT id, video_id, pool, reviewer_id, status, claimed_at, completed_at, created_at
-		FROM video_queue_tasks
-		WHERE pool = $1 AND reviewer_id = $2 AND status = 'in_progress'
-		ORDER BY claimed_at ASC
+		SELECT
+			t.id, t.video_id, t.pool, t.reviewer_id, t.status, t.claimed_at, t.completed_at, t.created_at,
+			v.id, v.video_key, v.filename, v.file_size, v.duration, v.upload_time,
+			v.video_url, v.url_expires_at, v.status, v.created_at, v.updated_at
+		FROM video_queue_tasks t
+		JOIN tiktok_videos v ON v.id = t.video_id
+		WHERE t.pool = $1 AND t.reviewer_id = $2 AND t.status = 'in_progress'
+		ORDER BY t.claimed_at ASC
 	`
 
 	rows, err := r.db.Query(query, pool, reviewerID)
@@ -111,31 +140,34 @@ func (r *VideoQueueRepository) GetMyQueueTasks(pool string, reviewerID int) ([]m
 
 	var tasks []models.VideoQueueTask
 	for rows.Next() {
-		var task models.VideoQueueTask
-		err := rows.Scan(
-			&task.ID,
-			&task.VideoID,
-			&task.Pool,
-			&task.ReviewerID,
-			&task.Status,
-			&task.ClaimedAt,
-			&task.CompletedAt,
-			&task.CreatedAt,
-		)
+		task, err := scanVideoQueueTaskWithVideo(rows)
 		if err != nil {
 			return nil, err
 		}
-
-		// Load video data
-		video, err := r.getVideoByID(task.VideoID)
-		if err == nil {
-			task.Video = video
-		}
-
 		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return tasks, nil
+}
+
+// CountMyQueueTasks returns the number of in-progress tasks for a reviewer in a pool
+func (r *VideoQueueRepository) CountMyQueueTasks(pool string, reviewerID int) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM video_queue_tasks
+		WHERE pool = $1 AND reviewer_id = $2 AND status = 'in_progress'
+	`
+
+	var count int
+	err := r.db.QueryRow(query, pool, reviewerID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 // CompleteQueueTask marks a task as completed

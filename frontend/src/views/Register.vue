@@ -138,7 +138,8 @@ const handleSendCode = async () => {
         if (codeCountdown.value <= 0) clearInterval(timer)
       }, 1000)
     } catch (error: any) {
-      ElMessage.error(error?.response?.data?.error || '发送验证码失败')
+      // 错误已在request.ts拦截器中统一处理（包括429限流）
+      console.error('Send code failed:', error)
     } finally {
       sendingCode.value = false
     }
@@ -156,8 +157,9 @@ const handleRegister = async () => {
       setTimeout(() => {
         router.push('/login')
       }, 1200)
-    } catch (error) {
-      ElMessage.error(error?.response?.data?.error || '注册失败')
+    } catch (error: any) {
+      // 错误已在request.ts拦截器中统一处理（包括429限流）
+      console.error('Register failed:', error)
     } finally {
       loading.value = false
     }

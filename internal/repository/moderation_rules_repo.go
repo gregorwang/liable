@@ -198,7 +198,13 @@ func (r *ModerationRulesRepository) GetCategories() ([]string, error) {
 
 // GetRiskLevels retrieves all unique risk levels
 func (r *ModerationRulesRepository) GetRiskLevels() ([]string, error) {
-	rows, err := r.db.Query("SELECT DISTINCT risk_level FROM moderation_rules ORDER BY CASE WHEN risk_level='L' THEN 1 WHEN risk_level='M' THEN 2 WHEN risk_level='H' THEN 3 WHEN risk_level='C' THEN 4 END")
+	// Use subquery to work around PostgreSQL DISTINCT + ORDER BY requirement
+	rows, err := r.db.Query(`
+		SELECT risk_level FROM (
+			SELECT DISTINCT risk_level FROM moderation_rules
+		) AS distinct_levels
+		ORDER BY CASE WHEN risk_level='L' THEN 1 WHEN risk_level='M' THEN 2 WHEN risk_level='H' THEN 3 WHEN risk_level='C' THEN 4 END
+	`)
 	if err != nil {
 		return nil, err
 	}

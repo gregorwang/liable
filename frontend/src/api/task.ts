@@ -26,7 +26,7 @@ export function submitReview(review: ReviewResult) {
  * Submit batch reviews
  */
 export function submitBatchReviews(reviews: ReviewResult[]) {
-  return request.post<any, { message: string; submitted: number }>('/tasks/submit-batch', {
+  return request.post<any, { message: string; count: number }>('/tasks/submit-batch', {
     reviews,
   })
 }

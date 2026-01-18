@@ -32,7 +32,7 @@ func (h *AuthHandler) SendVerificationCode(c *gin.Context) {
         return
     }
     verificationService := services.NewVerificationService()
-    if err := verificationService.SendCode(req.Email, req.Purpose); err != nil {
+    if err := verificationService.SendCode(req.Email, req.Purpose, c.ClientIP()); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
@@ -174,6 +174,6 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	c.JSON(http.StatusOK, gin.H{"user": user})
 }
 

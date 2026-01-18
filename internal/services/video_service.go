@@ -1,9 +1,9 @@
 package services
 
 import (
-	"comment-review-platform/internal/config"
 	"comment-review-platform/internal/models"
 	"comment-review-platform/internal/repository"
+	"comment-review-platform/internal/services/base"
 	"comment-review-platform/pkg/r2"
 	redispkg "comment-review-platform/pkg/redis"
 	"context"
@@ -18,6 +18,8 @@ import (
 type VideoService struct {
 	videoRepo *repository.VideoRepository
 	r2Service *r2.R2Service
+	rdb       *redis.Client
+	ctx       context.Context
 }
 
 func NewVideoService() (*VideoService, error) {
@@ -29,6 +31,8 @@ func NewVideoService() (*VideoService, error) {
 	return &VideoService{
 		videoRepo: repository.NewVideoRepository(),
 		r2Service: r2Service,
+		rdb:       redispkg.Client,
+		ctx:       context.Background(),
 	}, nil
 }
 
@@ -106,25 +110,45 @@ func (s *VideoService) CreateFirstReviewTask(videoID int) error {
 	return firstReviewRepo.CreateFirstReviewTask(videoID)
 }
 
-// GenerateVideoURL generates a pre-signed URL for video access
+// GenerateVideoURL generates a pre-signed URL for video access with Redis caching
 func (s *VideoService) GenerateVideoURL(videoID int) (*models.GenerateVideoURLResponse, error) {
-	// Get video from database
+	cacheKey := fmt.Sprintf("video:url:%d", videoID)
+
+	// 1. Try to get from Redis cache
+	videoURL, err := s.rdb.HGet(s.ctx, cacheKey, "url").Result()
+	if err == nil {
+		expiresAtStr, err2 := s.rdb.HGet(s.ctx, cacheKey, "expires_at").Result()
+		if err2 == nil {
+			// Check if cached URL is still valid
+			expiresAt, err3 := time.Parse(time.RFC3339, expiresAtStr)
+			if err3 == nil && expiresAt.After(time.Now()) {
+				return &models.GenerateVideoURLResponse{
+					VideoURL:  videoURL,
+					ExpiresAt: expiresAt,
+				}, nil
+			}
+		}
+	}
+
+	// 2. Cache miss or expired, get video from database
 	video, err := s.videoRepo.GetVideoByID(videoID)
 	if err != nil {
 		return nil, fmt.Errorf("video not found: %w", err)
 	}
 
-	// Check if we have a valid cached URL
+	// Check database cached URL
 	if video.VideoURL != nil && video.URLExpiresAt != nil && video.URLExpiresAt.After(time.Now()) {
+		// Update Redis cache
+		s.cacheVideoURL(videoID, *video.VideoURL, *video.URLExpiresAt)
 		return &models.GenerateVideoURLResponse{
 			VideoURL:  *video.VideoURL,
 			ExpiresAt: *video.URLExpiresAt,
 		}, nil
 	}
 
-	// Generate new pre-signed URL
+	// 3. Generate new pre-signed URL
 	expiration := 1 * time.Hour // URLs expire in 1 hour
-	videoURL, err := s.r2Service.GeneratePresignedURL(video.VideoKey, expiration)
+	newVideoURL, err := s.r2Service.GeneratePresignedURL(video.VideoKey, expiration)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate pre-signed URL: %w", err)
 	}
@@ -132,14 +156,33 @@ func (s *VideoService) GenerateVideoURL(videoID int) (*models.GenerateVideoURLRe
 	expiresAt := time.Now().Add(expiration)
 
 	// Update video record with new URL
-	if err := s.videoRepo.UpdateVideoURL(videoID, videoURL, expiresAt); err != nil {
-		log.Printf("Warning: Could not update video URL in database: %v", err)
+	if err := s.videoRepo.UpdateVideoURL(videoID, newVideoURL, expiresAt); err != nil {
+		log.Printf("Warning: Could not update video videoURL in database: %v", err)
 	}
 
+	// Update Redis cache
+	s.cacheVideoURL(videoID, newVideoURL, expiresAt)
+
 	return &models.GenerateVideoURLResponse{
-		VideoURL:  videoURL,
+		VideoURL:  newVideoURL,
 		ExpiresAt: expiresAt,
 	}, nil
+}
+
+// cacheVideoURL caches video URL in Redis asynchronously
+func (s *VideoService) cacheVideoURL(videoID int, url string, expiresAt time.Time) {
+	cacheKey := fmt.Sprintf("video:url:%d", videoID)
+	pipe := s.rdb.Pipeline()
+	pipe.HSet(s.ctx, cacheKey, "url", url)
+	pipe.HSet(s.ctx, cacheKey, "expires_at", expiresAt.Format(time.RFC3339))
+	pipe.Expire(s.ctx, cacheKey, 1*time.Hour) // Cache for 1 hour (same as URL expiration)
+
+	// Execute asynchronously
+	go func() {
+		if _, err := pipe.Exec(s.ctx); err != nil {
+			log.Printf("Warning: Failed to cache video URL %d: %v", videoID, err)
+		}
+	}()
 }
 
 // GetVideoByID retrieves a video by ID
@@ -161,8 +204,7 @@ type VideoFirstReviewService struct {
 	firstReviewRepo  *repository.VideoFirstReviewRepository
 	secondReviewRepo *repository.VideoSecondReviewRepository
 	videoRepo        *repository.VideoRepository
-	rdb              *redis.Client
-	ctx              context.Context
+	base             *base.BaseTaskService
 }
 
 func NewVideoFirstReviewService() *VideoFirstReviewService {
@@ -170,16 +212,15 @@ func NewVideoFirstReviewService() *VideoFirstReviewService {
 		firstReviewRepo:  repository.NewVideoFirstReviewRepository(),
 		secondReviewRepo: repository.NewVideoSecondReviewRepository(),
 		videoRepo:        repository.NewVideoRepository(),
-		rdb:              redispkg.Client,
-		ctx:              context.Background(),
+		base:             base.NewBaseTaskService(base.VideoFirstReviewTaskServiceConfig(), redispkg.Client),
 	}
 }
 
 // ClaimFirstReviewTasks allows a reviewer to claim first review tasks
 func (s *VideoFirstReviewService) ClaimFirstReviewTasks(reviewerID int, count int) ([]models.VideoFirstReviewTask, error) {
-	// Validate count (1-50)
-	if count < 1 || count > 50 {
-		return nil, errors.New("claim count must be between 1 and 50")
+	// Validate count using base service
+	if err := s.base.ValidateClaimCount(count); err != nil {
+		return nil, err
 	}
 
 	// Check if user already has uncompleted tasks
@@ -188,8 +229,8 @@ func (s *VideoFirstReviewService) ClaimFirstReviewTasks(reviewerID int, count in
 		return nil, err
 	}
 
-	if len(existingTasks) > 0 {
-		return nil, fmt.Errorf("you still have %d uncompleted video review tasks, please complete or return them first", len(existingTasks))
+	if err := s.base.CheckExistingTasks(len(existingTasks)); err != nil {
+		return nil, err
 	}
 
 	// Claim tasks from database
@@ -202,23 +243,12 @@ func (s *VideoFirstReviewService) ClaimFirstReviewTasks(reviewerID int, count in
 		return []models.VideoFirstReviewTask{}, nil
 	}
 
-	// Add tasks to Redis for tracking
-	userClaimedKey := fmt.Sprintf("video:first:claimed:%d", reviewerID)
-	timeout := time.Duration(config.AppConfig.TaskTimeoutMinutes) * time.Minute
-
-	pipe := s.rdb.Pipeline()
-	for _, task := range tasks {
-		// Add to user's claimed set
-		pipe.SAdd(s.ctx, userClaimedKey, task.ID)
-
-		// Set lock for each task
-		lockKey := fmt.Sprintf("video:first:lock:%d", task.ID)
-		pipe.Set(s.ctx, lockKey, reviewerID, timeout)
+	// Track tasks in Redis using base service
+	taskIDs := make([]int, len(tasks))
+	for i, task := range tasks {
+		taskIDs[i] = task.ID
 	}
-	pipe.Expire(s.ctx, userClaimedKey, timeout)
-
-	_, err = pipe.Exec(s.ctx)
-	if err != nil {
+	if err := s.base.TrackClaimedTasks(reviewerID, taskIDs); err != nil {
 		log.Printf("Redis error when claiming video first review tasks: %v", err)
 	}
 
@@ -273,8 +303,10 @@ func (s *VideoFirstReviewService) SubmitFirstReview(reviewerID int, req models.S
 			} else {
 				// Push to Redis second review queue
 				queueKey := "video:review:queue:second"
-				if err := s.rdb.LPush(s.ctx, queueKey, videoID).Err(); err != nil {
-					log.Printf("Redis error pushing to second review queue: %v", err)
+				if s.base.Rdb != nil {
+					if err := s.base.Rdb.LPush(s.base.Ctx, queueKey, videoID).Err(); err != nil {
+						log.Printf("Redis error pushing to second review queue: %v", err)
+					}
 				}
 			}
 		}
@@ -289,18 +321,8 @@ func (s *VideoFirstReviewService) SubmitFirstReview(reviewerID int, req models.S
 		}
 	}
 
-	// Remove from Redis
-	userClaimedKey := fmt.Sprintf("video:first:claimed:%d", reviewerID)
-	lockKey := fmt.Sprintf("video:first:lock:%d", req.TaskID)
-
-	pipe := s.rdb.Pipeline()
-	pipe.SRem(s.ctx, userClaimedKey, req.TaskID)
-	pipe.Del(s.ctx, lockKey)
-	_, err := pipe.Exec(s.ctx)
-
-	if err != nil {
-		log.Printf("Redis error when submitting video first review: %v", err)
-	}
+	// Cleanup Redis tracking using base service
+	s.base.CleanupSingleTask(reviewerID, req.TaskID)
 
 	// Update statistics in Redis
 	s.updateVideoStats(result)
@@ -320,9 +342,9 @@ func (s *VideoFirstReviewService) SubmitBatchFirstReviews(reviewerID int, review
 
 // ReturnFirstReviewTasks allows a reviewer to return first review tasks back to the pool
 func (s *VideoFirstReviewService) ReturnFirstReviewTasks(reviewerID int, taskIDs []int) (int, error) {
-	// Validate task count (1-50)
-	if len(taskIDs) < 1 || len(taskIDs) > 50 {
-		return 0, errors.New("return count must be between 1 and 50")
+	// Validate return count using base service
+	if err := s.base.ValidateReturnCount(len(taskIDs)); err != nil {
+		return 0, err
 	}
 
 	// Return tasks in database
@@ -335,30 +357,15 @@ func (s *VideoFirstReviewService) ReturnFirstReviewTasks(reviewerID int, taskIDs
 		return 0, errors.New("no tasks were returned, please check if the tasks belong to you")
 	}
 
-	// Clean up Redis
-	userClaimedKey := fmt.Sprintf("video:first:claimed:%d", reviewerID)
-	pipe := s.rdb.Pipeline()
-
-	for _, taskID := range taskIDs {
-		// Remove from user's claimed set
-		pipe.SRem(s.ctx, userClaimedKey, taskID)
-
-		// Remove task lock
-		lockKey := fmt.Sprintf("video:first:lock:%d", taskID)
-		pipe.Del(s.ctx, lockKey)
-	}
-
-	_, err = pipe.Exec(s.ctx)
-	if err != nil {
-		log.Printf("Redis error when returning video first review tasks: %v", err)
-	}
+	// Cleanup Redis tracking using base service
+	s.base.CleanupTaskTracking(reviewerID, taskIDs)
 
 	return returnedCount, nil
 }
 
 // ReleaseExpiredFirstReviewTasks releases first review tasks that have exceeded the timeout
 func (s *VideoFirstReviewService) ReleaseExpiredFirstReviewTasks() error {
-	timeoutMinutes := config.AppConfig.TaskTimeoutMinutes
+	timeoutMinutes := s.base.GetTaskTimeoutMinutes()
 	expiredTasks, err := s.firstReviewRepo.FindExpiredFirstReviewTasks(timeoutMinutes)
 	if err != nil {
 		return err
@@ -371,13 +378,9 @@ func (s *VideoFirstReviewService) ReleaseExpiredFirstReviewTasks() error {
 			continue
 		}
 
-		// Clean up Redis
+		// Clean up Redis using base service
 		if task.ReviewerID != nil {
-			userClaimedKey := fmt.Sprintf("video:first:claimed:%d", *task.ReviewerID)
-			lockKey := fmt.Sprintf("video:first:lock:%d", task.ID)
-
-			s.rdb.SRem(s.ctx, userClaimedKey, task.ID)
-			s.rdb.Del(s.ctx, lockKey)
+			s.base.CleanupSingleTask(*task.ReviewerID, task.ID)
 		}
 
 		log.Printf("Released expired video first review task %d", task.ID)
@@ -388,6 +391,10 @@ func (s *VideoFirstReviewService) ReleaseExpiredFirstReviewTasks() error {
 
 // updateVideoStats updates statistics in Redis
 func (s *VideoFirstReviewService) updateVideoStats(result *models.VideoFirstReviewResult) {
+	if s.base.Rdb == nil {
+		return
+	}
+
 	now := time.Now()
 	date := now.Format("2006-01-02")
 	hour := now.Hour()
@@ -395,15 +402,15 @@ func (s *VideoFirstReviewService) updateVideoStats(result *models.VideoFirstRevi
 	hourlyKey := fmt.Sprintf("video:stats:hourly:%s:%d", date, hour)
 	dailyKey := fmt.Sprintf("video:stats:daily:%s", date)
 
-	pipe := s.rdb.Pipeline()
-	pipe.HIncrBy(s.ctx, hourlyKey, "count", 1)
-	pipe.Expire(s.ctx, hourlyKey, 7*24*time.Hour) // 7 days TTL
+	pipe := s.base.Rdb.Pipeline()
+	pipe.HIncrBy(s.base.Ctx, hourlyKey, "count", 1)
+	pipe.Expire(s.base.Ctx, hourlyKey, 7*24*time.Hour) // 7 days TTL
 
-	pipe.HIncrBy(s.ctx, dailyKey, "count", 1)
+	pipe.HIncrBy(s.base.Ctx, dailyKey, "count", 1)
 	if result.IsApproved {
-		pipe.HIncrBy(s.ctx, dailyKey, "approved", 1)
+		pipe.HIncrBy(s.base.Ctx, dailyKey, "approved", 1)
 	} else {
-		pipe.HIncrBy(s.ctx, dailyKey, "rejected", 1)
+		pipe.HIncrBy(s.base.Ctx, dailyKey, "rejected", 1)
 	}
 
 	// Track overall score distribution
@@ -413,11 +420,11 @@ func (s *VideoFirstReviewService) updateVideoStats(result *models.VideoFirstRevi
 	} else if result.OverallScore >= 20 {
 		scoreRange = "medium"
 	}
-	pipe.HIncrBy(s.ctx, dailyKey, fmt.Sprintf("score:%s", scoreRange), 1)
+	pipe.HIncrBy(s.base.Ctx, dailyKey, fmt.Sprintf("score:%s", scoreRange), 1)
 
-	pipe.Expire(s.ctx, dailyKey, 30*24*time.Hour) // 30 days TTL
+	pipe.Expire(s.base.Ctx, dailyKey, 30*24*time.Hour) // 30 days TTL
 
-	_, err := pipe.Exec(s.ctx)
+	_, err := pipe.Exec(s.base.Ctx)
 	if err != nil {
 		log.Printf("Redis error when updating video stats: %v", err)
 	}

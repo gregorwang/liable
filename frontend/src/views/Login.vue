@@ -203,7 +203,8 @@ const handleSendCode = async () => {
         if (codeCountdown.value <= 0) clearInterval(timer)
       }, 1000)
     } catch (error: any) {
-      ElMessage.error(error?.response?.data?.error || '发送验证码失败')
+      // 错误已在request.ts拦截器中统一处理，这里不需要重复显示
+      console.error('Send code failed:', error)
     } finally {
       sendingCode.value = false
     }
@@ -220,7 +221,8 @@ const handleLoginWithCode = async () => {
       ElMessage.success('登录成功')
       router.push('/main/queue-list')
     } catch (error: any) {
-      ElMessage.error(error?.response?.data?.error || '登录失败')
+      // 错误已在request.ts拦截器中统一处理
+      console.error('Login with code failed:', error)
     } finally {
       loading.value = false
     }

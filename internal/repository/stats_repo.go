@@ -304,13 +304,23 @@ func (r *StatsRepository) GetHourlyStats(date string) ([]models.HourlyStatItem, 
 // GetTagStats returns violation tag statistics from comment reviews
 func (r *StatsRepository) GetTagStats() ([]models.TagStats, error) {
 	query := `
+		WITH tag_counts AS (
+			SELECT
+				unnest(tags) as tag_name,
+				COUNT(*) as count
+			FROM review_results
+			WHERE is_approved = false AND tags IS NOT NULL
+			GROUP BY tag_name
+		),
+		total AS (
+			SELECT SUM(count) as total_count FROM tag_counts
+		)
 		SELECT
-			unnest(tags) as tag_name,
-			COUNT(*) as count
-		FROM review_results
-		WHERE is_approved = false AND tags IS NOT NULL
-		GROUP BY tag_name
-		ORDER BY count DESC
+			tc.tag_name,
+			tc.count,
+			CASE WHEN t.total_count > 0 THEN tc.count::float / t.total_count ELSE 0 END as percentage
+		FROM tag_counts tc, total t
+		ORDER BY tc.count DESC
 	`
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -321,7 +331,7 @@ func (r *StatsRepository) GetTagStats() ([]models.TagStats, error) {
 	stats := []models.TagStats{}
 	for rows.Next() {
 		var stat models.TagStats
-		if err := rows.Scan(&stat.TagName, &stat.Count); err != nil {
+		if err := rows.Scan(&stat.TagName, &stat.Count, &stat.Percentage); err != nil {
 			return nil, err
 		}
 		stats = append(stats, stat)

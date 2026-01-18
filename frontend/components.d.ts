@@ -63,6 +63,7 @@ declare module 'vue' {
     ElTabs: typeof import('element-plus/es')['ElTabs']
     ElTag: typeof import('element-plus/es')['ElTag']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    GenericReviewDashboard: typeof import('./src/components/GenericReviewDashboard.vue')['default']
     HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']
     MainLayout: typeof import('./src/components/MainLayout.vue')['default']
     NotificationBell: typeof import('./src/components/NotificationBell.vue')['default']

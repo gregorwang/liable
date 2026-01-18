@@ -51,15 +51,15 @@ export const getMyVideoFirstReviewTasks = (): Promise<{ tasks: VideoFirstReviewT
   return request.get('/tasks/video-first-review/my')
 }
 
-export const submitVideoFirstReview = (data: SubmitVideoFirstReviewRequest): Promise<void> => {
+export const submitVideoFirstReview = (data: SubmitVideoFirstReviewRequest): Promise<{ message: string }> => {
   return request.post('/tasks/video-first-review/submit', data)
 }
 
-export const submitBatchVideoFirstReviews = (data: BatchSubmitVideoFirstReviewRequest): Promise<void> => {
+export const submitBatchVideoFirstReviews = (data: BatchSubmitVideoFirstReviewRequest): Promise<{ message: string; count: number }> => {
   return request.post('/tasks/video-first-review/submit-batch', data)
 }
 
-export const returnVideoFirstReviewTasks = (data: ReturnVideoFirstReviewTasksRequest): Promise<void> => {
+export const returnVideoFirstReviewTasks = (data: ReturnVideoFirstReviewTasksRequest): Promise<{ message: string; count: number }> => {
   return request.post('/tasks/video-first-review/return', data)
 }
 
@@ -73,15 +73,15 @@ export const getMyVideoSecondReviewTasks = (): Promise<{ tasks: VideoSecondRevie
   return request.get('/tasks/video-second-review/my')
 }
 
-export const submitVideoSecondReview = (data: SubmitVideoSecondReviewRequest): Promise<void> => {
+export const submitVideoSecondReview = (data: SubmitVideoSecondReviewRequest): Promise<{ message: string }> => {
   return request.post('/tasks/video-second-review/submit', data)
 }
 
-export const submitBatchVideoSecondReviews = (data: BatchSubmitVideoSecondReviewRequest): Promise<void> => {
+export const submitBatchVideoSecondReviews = (data: BatchSubmitVideoSecondReviewRequest): Promise<{ message: string; count: number }> => {
   return request.post('/tasks/video-second-review/submit-batch', data)
 }
 
-export const returnVideoSecondReviewTasks = (data: ReturnVideoSecondReviewTasksRequest): Promise<void> => {
+export const returnVideoSecondReviewTasks = (data: ReturnVideoSecondReviewTasksRequest): Promise<{ message: string; count: number }> => {
   return request.post('/tasks/video-second-review/return', data)
 }
 

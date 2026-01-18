@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp",
+      "autoApprove": [
+        "list_tables",
+        "execute_sql"
+      ]
+    }
+  }
+}

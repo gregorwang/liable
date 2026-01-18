@@ -1,15 +1,8 @@
 import request from './request'
+import type { VideoQueueTag } from '../types'
 
-export interface VideoQualityTag {
-  id: number
-  name: string
-  description: string
-  category: string
-  scope: string
-  queue_id: string | null
-  is_active: boolean
-  created_at: string
-}
+// Re-export VideoQueueTag for convenience
+export type { VideoQueueTag }
 
 export interface CreateVideoTagRequest {
   name: string
@@ -31,14 +24,14 @@ export interface UpdateVideoTagRequest {
 /**
  * 获取所有视频标签
  */
-export const getAllVideoTags = (scope?: string): Promise<{ tags: VideoQualityTag[] }> => {
+export const getAllVideoTags = (scope?: string): Promise<{ tags: VideoQueueTag[] }> => {
   return request.get('/admin/video-tags', { params: { scope } })
 }
 
 /**
  * 创建视频标签
  */
-export const createVideoTag = (data: CreateVideoTagRequest): Promise<{ message: string, tag: VideoQualityTag }> => {
+export const createVideoTag = (data: CreateVideoTagRequest): Promise<{ message: string, tag: VideoQueueTag }> => {
   return request.post('/admin/video-tags', data)
 }
 

@@ -7,10 +7,9 @@ import (
 	"comment-review-platform/internal/services"
 	"comment-review-platform/pkg/database"
 	redispkg "comment-review-platform/pkg/redis"
+	"database/sql"
 	"log"
 	"time"
-
-	"database/sql"
 
 	"github.com/gin-gonic/gin"
 )
@@ -34,6 +33,9 @@ func main() {
 	}
 	defer redispkg.Close()
 
+	// Initialize audit logger (requires DB connection)
+	middleware.InitAuditLogger(db)
+
 	// Create database tables if they don't exist
 	if err := createTables(db); err != nil {
 		log.Fatalf("❌ Failed to create tables: %v", err)
@@ -50,8 +52,14 @@ func main() {
 	// Start daily sampling scheduler
 	go startSamplingScheduler()
 
+	// Start daily statistics aggregation scheduler
+	go startDailyStatsAggregator()
+
 	// Setup Gin router
 	router := setupRouter(db)
+
+	// Start audit log cleanup (retention: 90 days, runs daily)
+	go middleware.StartAuditLogCleanup(90, 24*time.Hour)
 
 	// Start server
 	log.Printf("🚀 Server starting on port %s", cfg.Port)
@@ -63,7 +71,14 @@ func main() {
 func setupRouter(db interface{}) *gin.Engine {
 	router := gin.Default()
 
-	// CORS middleware
+	// Global middleware (executed in order)
+	// 1. Global rate limiting (first line of defense - 100 req/sec per IP)
+	router.Use(middleware.GlobalRateLimiterV2())
+
+	// 2. Audit logging (async, non-blocking)
+	router.Use(middleware.AuditLogMiddleware())
+
+	// 3. CORS middleware
 	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -124,12 +139,18 @@ func setupRouter(db interface{}) *gin.Engine {
 		// Auth routes (public)
 		auth := api.Group("/auth")
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
-			auth.POST("/send-code", authHandler.SendVerificationCode)
-			auth.POST("/login-with-code", authHandler.LoginWithCode)
-			auth.POST("/register-with-code", authHandler.RegisterWithCode)
-			auth.GET("/check-email", authHandler.CheckEmail)
+			// Rate limit: 3 attempts per 5.5 minutes for registration
+			auth.POST("/register", middleware.EndpointRateLimiterV2(3, 5*time.Minute+30*time.Second), authHandler.Register)
+			// Rate limit: 5 attempts per 5 minutes for login
+			auth.POST("/login", middleware.EndpointRateLimiterV2(5, 5*time.Minute), authHandler.Login)
+			// Rate limit: 10 attempts per hour for send-code
+			auth.POST("/send-code", middleware.EndpointRateLimiterV2(10, 1*time.Hour), authHandler.SendVerificationCode)
+			// Rate limit: 5 attempts per 5 minutes for
+			auth.POST("/login-with-code", middleware.EndpointRateLimiterV2(5, 5*time.Minute), authHandler.LoginWithCode)
+			// Rate limit: 3 attempts per 5.5 minutes for registration
+			auth.POST("/register-with-code", middleware.EndpointRateLimiterV2(3, 5*time.Minute+30*time.Second), authHandler.RegisterWithCode)
+			// Rate limit: 10 per minute for email checking
+			auth.GET("/check-email", middleware.EndpointRateLimiterV2(10, 1*time.Minute), authHandler.CheckEmail)
 			auth.GET("/profile", middleware.AuthMiddleware(), authHandler.GetProfile)
 		}
 
@@ -367,7 +388,7 @@ func startSamplingScheduler() {
 func startTaskReleaseWorker() {
 	taskService := services.NewTaskService()
 	secondReviewService := services.NewSecondReviewService()
-	qcService := services.NewQualityCheckService()
+	qcCService := services.NewQualityCheckService()
 	videoFirstReviewService := services.NewVideoFirstReviewService()
 	videoSecondReviewService := services.NewVideoSecondReviewService()
 	videoQueueService := services.NewVideoQueueService()
@@ -383,7 +404,7 @@ func startTaskReleaseWorker() {
 		if err := secondReviewService.ReleaseExpiredSecondReviewTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired second review tasks: %v", err)
 		}
-		if err := qcService.ReleaseExpiredQCTasks(); err != nil {
+		if err := qcCService.ReleaseExpiredQCTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired QC tasks: %v", err)
 		}
 		if err := videoFirstReviewService.ReleaseExpiredFirstReviewTasks(); err != nil {
@@ -395,6 +416,28 @@ func startTaskReleaseWorker() {
 		// Release expired video queue tasks (all pools)
 		if err := videoQueueService.ReleaseAllExpiredTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired video queue tasks: %v", err)
+		}
+	}
+}
+
+func startDailyStatsAggregator() {
+	scheduledTasksService := services.NewScheduledTasksService(database.DB)
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	log.Println("✅ Daily stats aggregation scheduler started (runs every hour)")
+
+	// Run initial aggregation after a short delay
+	go func() {
+		time.Sleep(5 * time.Minute)
+		if err := scheduledTasksService.RunDailyAggregation(); err != nil {
+			log.Printf("⚠️ Error in initial daily stats aggregation: %v", err)
+		}
+	}()
+
+	for range ticker.C {
+		if err := scheduledTasksService.RunDailyAggregation(); err != nil {
+			log.Printf("⚠️ Error in daily stats aggregation: %v", err)
 		}
 	}
 }

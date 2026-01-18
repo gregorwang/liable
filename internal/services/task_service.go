@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -264,7 +263,7 @@ func (s *TaskService) ReleaseExpiredTasks() error {
 	return nil
 }
 
-// SearchTasks searches review tasks with filters and pagination
+// SearchTasks searches review tasks with filters and pagination (optimized with database-level sorting)
 func (s *TaskService) SearchTasks(req models.SearchTasksRequest) (*models.SearchTasksResponse, error) {
 	// Set default pagination values
 	if req.Page < 1 {
@@ -283,66 +282,21 @@ func (s *TaskService) SearchTasks(req models.SearchTasksRequest) (*models.Search
 		req.QueueType = "all"
 	}
 
-	var allResults []models.TaskSearchResult
-	var totalCount int
-
-	// Search first review tasks
-	if req.QueueType == "first" || req.QueueType == "all" {
-		firstResults, firstTotal, err := s.taskRepo.SearchTasks(req)
-		if err != nil {
-			return nil, err
-		}
-		allResults = append(allResults, firstResults...)
-		totalCount += firstTotal
-	}
-
-	// Search second review tasks
-	if req.QueueType == "second" || req.QueueType == "all" {
-		secondResults, secondTotal, err := s.secondReviewRepo.SearchSecondReviewTasks(req)
-		if err != nil {
-			return nil, err
-		}
-		allResults = append(allResults, secondResults...)
-		totalCount += secondTotal
-	}
-
-	// Sort combined results by completion time (most recent first)
-	// Note: This is a simple approach. For better performance with large datasets,
-	// consider implementing database-level sorting with UNION queries
-	sort.Slice(allResults, func(i, j int) bool {
-		if allResults[i].CompletedAt == nil && allResults[j].CompletedAt == nil {
-			return allResults[i].CreatedAt.After(allResults[j].CreatedAt)
-		}
-		if allResults[i].CompletedAt == nil {
-			return false
-		}
-		if allResults[j].CompletedAt == nil {
-			return true
-		}
-		return allResults[i].CompletedAt.After(*allResults[j].CompletedAt)
-	})
-
-	// Apply pagination to combined results
-	offset := (req.Page - 1) * req.PageSize
-	end := offset + req.PageSize
-	if end > len(allResults) {
-		end = len(allResults)
-	}
-	if offset >= len(allResults) {
-		allResults = []models.TaskSearchResult{}
-	} else {
-		allResults = allResults[offset:end]
+	// Use the optimized unified search with database-level sorting
+	results, total, err := s.taskRepo.SearchTasksUnified(req)
+	if err != nil {
+		return nil, err
 	}
 
 	// Calculate total pages
-	totalPages := totalCount / req.PageSize
-	if totalCount%req.PageSize > 0 {
+	totalPages := total / req.PageSize
+	if total%req.PageSize > 0 {
 		totalPages++
 	}
 
 	response := &models.SearchTasksResponse{
-		Data:       allResults,
-		Total:      totalCount,
+		Data:       results,
+		Total:      total,
 		Page:       req.Page,
 		PageSize:   req.PageSize,
 		TotalPages: totalPages,

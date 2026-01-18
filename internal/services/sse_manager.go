@@ -158,7 +158,7 @@ func (m *SSEManager) sendMessage(broadcastMsg models.BroadcastMessage) {
 
 // heartbeatWorker sends periodic heartbeat messages
 func (m *SSEManager) heartbeatWorker() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(3 * time.Minute) // Changed from 30s to 3 minutes
 	defer ticker.Stop()
 
 	for {

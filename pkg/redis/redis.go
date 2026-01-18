@@ -20,8 +20,10 @@ func InitRedis(addr, password string, db int, useTLS bool, tlsSkipVerify bool) (
         DB:           db,
         Network:      "tcp",
         DialTimeout:  5 * time.Second,
-        ReadTimeout:  5 * time.Second,
-        WriteTimeout: 5 * time.Second,
+        ReadTimeout:  30 * time.Second,  // Increased to 30s
+        WriteTimeout:  30 * time.Second, // Increased to 30s
+        PoolTimeout:   30 * time.Second,  // Connection pool timeout
+        PoolSize:     10,                      // Max 10 connections
     }
 
 	// Enable TLS if required (for Upstash)

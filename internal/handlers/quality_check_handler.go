@@ -1,9 +1,10 @@
 package handlers
 
 import (
+	"comment-review-platform/internal/handlers/base"
+	"comment-review-platform/internal/middleware"
 	"comment-review-platform/internal/models"
 	"comment-review-platform/internal/services"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,129 +21,118 @@ func NewQualityCheckHandler() *QualityCheckHandler {
 
 // ClaimQCTasks allows a reviewer to claim quality check tasks
 func (h *QualityCheckHandler) ClaimQCTasks(c *gin.Context) {
+	reviewerID := middleware.GetUserID(c)
+	if reviewerID == 0 {
+		base.RespondUnauthorized(c, "User not authenticated")
+		return
+	}
+
 	var req models.ClaimQCTasksRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		base.RespondBadRequest(c, base.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
-	// Get reviewer ID from context (set by auth middleware)
-	reviewerID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
-		return
-	}
-
-	tasks, err := h.qcService.ClaimQCTasks(reviewerID.(int), req.Count)
+	tasks, err := h.qcService.ClaimQCTasks(reviewerID, req.Count)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		base.RespondBadRequest(c, base.ErrCodeClaimFailed, err.Error())
 		return
 	}
 
-	response := models.ClaimQCTasksResponse{
+	base.RespondSuccess(c, models.ClaimQCTasksResponse{
 		Tasks: tasks,
 		Count: len(tasks),
-	}
-
-	c.JSON(http.StatusOK, response)
+	})
 }
 
 // GetMyQCTasks gets the current user's quality check tasks
 func (h *QualityCheckHandler) GetMyQCTasks(c *gin.Context) {
-	// Get reviewer ID from context
-	reviewerID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+	reviewerID := middleware.GetUserID(c)
+	if reviewerID == 0 {
+		base.RespondUnauthorized(c, "User not authenticated")
 		return
 	}
 
-	tasks, err := h.qcService.GetMyQCTasks(reviewerID.(int))
+	tasks, err := h.qcService.GetMyQCTasks(reviewerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		base.RespondInternalError(c, base.ErrCodeFetchFailed, err.Error())
 		return
 	}
 
-	response := models.ClaimQCTasksResponse{
+	base.RespondSuccess(c, models.ClaimQCTasksResponse{
 		Tasks: tasks,
 		Count: len(tasks),
-	}
-
-	c.JSON(http.StatusOK, response)
+	})
 }
 
 // SubmitQCReview submits a single quality check result
 func (h *QualityCheckHandler) SubmitQCReview(c *gin.Context) {
+	reviewerID := middleware.GetUserID(c)
+	if reviewerID == 0 {
+		base.RespondUnauthorized(c, "User not authenticated")
+		return
+	}
+
 	var req models.SubmitQCRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		base.RespondBadRequest(c, base.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
-	// Get reviewer ID from context
-	reviewerID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+	if err := h.qcService.SubmitQCReview(reviewerID, req); err != nil {
+		base.RespondBadRequest(c, base.ErrCodeSubmitFailed, err.Error())
 		return
 	}
 
-	err := h.qcService.SubmitQCReview(reviewerID.(int), req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Quality check submitted successfully"})
+	base.RespondSuccess(c, gin.H{"message": "Quality check submitted successfully"})
 }
 
 // SubmitBatchQCReviews submits multiple quality check results
 func (h *QualityCheckHandler) SubmitBatchQCReviews(c *gin.Context) {
+	reviewerID := middleware.GetUserID(c)
+	if reviewerID == 0 {
+		base.RespondUnauthorized(c, "User not authenticated")
+		return
+	}
+
 	var req models.BatchSubmitQCRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		base.RespondBadRequest(c, base.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
-	// Get reviewer ID from context
-	reviewerID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+	if err := h.qcService.SubmitBatchQCReviews(reviewerID, req.Reviews); err != nil {
+		base.RespondBadRequest(c, base.ErrCodeSubmitFailed, err.Error())
 		return
 	}
 
-	err := h.qcService.SubmitBatchQCReviews(reviewerID.(int), req.Reviews)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":   "Quality checks submitted successfully",
-		"submitted": len(req.Reviews),
+	base.RespondSuccess(c, gin.H{
+		"message": "Quality checks submitted successfully",
+		"count":   len(req.Reviews),
 	})
 }
 
 // ReturnQCTasks allows a reviewer to return quality check tasks
 func (h *QualityCheckHandler) ReturnQCTasks(c *gin.Context) {
+	reviewerID := middleware.GetUserID(c)
+	if reviewerID == 0 {
+		base.RespondUnauthorized(c, "User not authenticated")
+		return
+	}
+
 	var req models.ReturnQCTasksRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		base.RespondBadRequest(c, base.ErrCodeInvalidRequest, err.Error())
 		return
 	}
 
-	// Get reviewer ID from context
-	reviewerID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
-		return
-	}
-
-	returnedCount, err := h.qcService.ReturnQCTasks(reviewerID.(int), req.TaskIDs)
+	returnedCount, err := h.qcService.ReturnQCTasks(reviewerID, req.TaskIDs)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		base.RespondBadRequest(c, base.ErrCodeReturnFailed, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	base.RespondSuccess(c, gin.H{
 		"message": "QC tasks returned successfully",
 		"count":   returnedCount,
 	})
@@ -150,18 +140,17 @@ func (h *QualityCheckHandler) ReturnQCTasks(c *gin.Context) {
 
 // GetQCStats gets quality check statistics for the current user
 func (h *QualityCheckHandler) GetQCStats(c *gin.Context) {
-	// Get reviewer ID from context
-	reviewerID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+	reviewerID := middleware.GetUserID(c)
+	if reviewerID == 0 {
+		base.RespondUnauthorized(c, "User not authenticated")
 		return
 	}
 
-	stats, err := h.qcService.GetQCStats(reviewerID.(int))
+	stats, err := h.qcService.GetQCStats(reviewerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		base.RespondInternalError(c, base.ErrCodeFetchFailed, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	base.RespondSuccess(c, stats)
 }

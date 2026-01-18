@@ -369,3 +369,181 @@ func (r *TaskRepository) SearchTasks(req models.SearchTasksRequest) ([]models.Ta
 
 	return results, total, nil
 }
+
+// SearchTasksUnified searches review tasks with database-level sorting and pagination
+// This is optimized to handle both first and second review queues in a single query
+func (r *TaskRepository) SearchTasksUnified(req models.SearchTasksRequest) ([]models.TaskSearchResult, int, error) {
+	// Build WHERE conditions
+	var conditions []string
+	var args []interface{}
+	argPos := 1
+
+	// Only search completed tasks
+	conditions = append(conditions, "rt.status = 'completed'")
+
+	// Filter by comment_id
+	if req.CommentID != nil {
+		conditions = append(conditions, fmt.Sprintf("rt.comment_id = $%d", argPos))
+		args = append(args, *req.CommentID)
+		argPos++
+	}
+
+	// Filter by reviewer username
+	if req.ReviewerRTX != "" {
+		conditions = append(conditions, fmt.Sprintf("u.username = $%d", argPos))
+		args = append(args, req.ReviewerRTX)
+		argPos++
+	}
+
+	// Filter by tag_ids (OR condition for tags)
+	if req.TagIDs != "" {
+		tagIDs := strings.Split(req.TagIDs, ",")
+		conditions = append(conditions, fmt.Sprintf("rr.tags && $%d", argPos))
+		args = append(args, pq.Array(tagIDs))
+		argPos++
+	}
+
+	// Filter by review time range
+	if req.ReviewStartTime != nil {
+		conditions = append(conditions, fmt.Sprintf("rt.completed_at >= $%d", argPos))
+		args = append(args, *req.ReviewStartTime)
+		argPos++
+	}
+
+	if req.ReviewEndTime != nil {
+		conditions = append(conditions, fmt.Sprintf("rt.completed_at <= $%d", argPos))
+		args = append(args, *req.ReviewEndTime)
+		argPos++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Determine which queues to include
+	includeFirst := req.QueueType == "first" || req.QueueType == "all"
+	includeSecond := req.QueueType == "second" || req.QueueType == "all"
+
+	if !includeFirst && !includeSecond {
+		// Default to "all" if no valid queue type
+		includeFirst = true
+		includeSecond = true
+	}
+
+	// Build union query
+	var unionQuery string
+	var queueSources []string
+
+	if includeFirst {
+		queueSources = append(queueSources, fmt.Sprintf(`
+			SELECT
+				rt.id, rt.comment_id, c.text as comment_text,
+				rt.reviewer_id, u.username as username,
+				rt.status, rt.claimed_at, rt.completed_at, rt.created_at,
+				rr.id as review_id, rr.is_approved, rr.tags, rr.reason, rr.created_at as reviewed_at,
+				'first' as queue_type,
+				NULL as second_review_id, NULL as second_is_approved,
+				NULL as second_tags, NULL as second_reason, NULL as second_reviewed_at,
+				NULL as second_reviewer_id, NULL as second_username
+			FROM review_tasks rt
+			LEFT JOIN review_results rr ON rt.id = rr.task_id
+			LEFT JOIN users u ON rt.reviewer_id = u.id
+			LEFT JOIN comment c ON rt.comment_id = c.id
+			%s
+		`, whereClause))
+	}
+
+	if includeSecond {
+		queueSources = append(queueSources, fmt.Sprintf(`
+			SELECT
+				srt.id, srt.comment_id, c.text as comment_text,
+				srt.reviewer_id, u2.username as username,
+				srt.status, srt.claimed_at, srt.completed_at, srt.created_at,
+				NULL as review_id, NULL as is_approved, NULL as tags, NULL as reason, NULL as reviewed_at,
+				'second' as queue_type,
+				srr.id as second_review_id, srr.is_approved as second_is_approved,
+				srr.tags as second_tags, srr.reason as second_reason, srr.created_at as second_reviewed_at,
+				NULL as second_reviewer_id, NULL as second_username
+			FROM second_review_tasks srt
+			LEFT JOIN second_review_results srr ON srt.id = srr.second_task_id
+			LEFT JOIN users u2 ON srt.reviewer_id = u2.id
+			LEFT JOIN comment c ON srt.comment_id = c.id
+			%s
+		`, whereClause))
+	}
+
+	// Join queue sources with UNION ALL
+	if len(queueSources) == 2 {
+		unionQuery = fmt.Sprintf("(%s) UNION ALL (%s)", queueSources[0], queueSources[1])
+	} else if len(queueSources) == 1 {
+		unionQuery = queueSources[0]
+	} else {
+		return []models.TaskSearchResult{}, 0, nil
+	}
+
+	// Count total records
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s) combined_results", unionQuery)
+	var total int
+	err := r.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Query with database-level sorting and pagination
+	offset := (req.Page - 1) * req.PageSize
+	dataQuery := fmt.Sprintf(`
+		SELECT * FROM (%s) combined_results
+		ORDER BY completed_at DESC
+		LIMIT $%d OFFSET $%d
+	`, unionQuery, argPos, argPos+1)
+
+	args = append(args, req.PageSize, offset)
+	rows, err := r.db.Query(dataQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	results := []models.TaskSearchResult{}
+	for rows.Next() {
+		var result models.TaskSearchResult
+		var firstTags, secondTags []string
+		var _ /*firstUsername*/, secondUsername sql.NullString
+		var secondReviewerID sql.NullInt64
+
+		err := rows.Scan(
+			&result.ID, &result.CommentID, &result.CommentText,
+			&result.ReviewerID, &result.Username,
+			&result.Status, &result.ClaimedAt, &result.CompletedAt, &result.CreatedAt,
+			&result.ReviewID, &result.IsApproved, pq.Array(&firstTags), &result.Reason, &result.ReviewedAt,
+			&result.QueueType,
+			&result.SecondReviewID, &result.SecondIsApproved,
+			pq.Array(&secondTags), &result.SecondReason, &result.SecondReviewedAt,
+			&secondReviewerID, &secondUsername,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Set tags for first review tasks
+		if result.QueueType == "first" {
+			result.Tags = firstTags
+		} else {
+			// For second review tasks, set first review info if available
+			result.SecondTags = secondTags
+			if secondUsername.Valid {
+				result.SecondUsername = &secondUsername.String
+			}
+			if secondReviewerID.Valid {
+				secondID := int(secondReviewerID.Int64)
+				result.SecondReviewerID = &secondID
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	return results, total, nil
+}
+

@@ -52,7 +52,7 @@ export function getTodayReviewStats() {
  * Get hourly statistics
  */
 export function getHourlyStats(date: string) {
-  return request.get<any, { stats: HourlyStats[] }>('/admin/stats/hourly', {
+  return request.get<any, HourlyStats>('/admin/stats/hourly', {
     params: { date },
   })
 }
@@ -61,7 +61,7 @@ export function getHourlyStats(date: string) {
  * Get tag statistics
  */
 export function getTagStats() {
-  return request.get<any, { stats: TagStats[] }>('/admin/stats/tags')
+  return request.get<any, { tags: TagStats[] }>('/admin/stats/tags')
 }
 
 /**

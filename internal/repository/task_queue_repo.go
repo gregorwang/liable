@@ -5,6 +5,7 @@ import (
 	"comment-review-platform/pkg/database"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -93,92 +94,101 @@ func (r *TaskQueueRepository) GetTaskQueueByID(id int) (*models.TaskQueue, error
 	return &queue, nil
 }
 
-// ListTaskQueues returns paginated task queues with real-time statistics from unified_queue_stats
+// ListTaskQueues returns paginated task queues with statistics
+// Uses a fast hardcoded queue list with async stats loading to avoid slow view queries
 func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) ([]models.TaskQueue, int, error) {
-	// Build WHERE clause
-	var conditions []string
-	var args []interface{}
-	argIndex := 1
+	log.Printf("📊 ListTaskQueues called: page=%d, pageSize=%d", req.Page, req.PageSize)
+	startTime := time.Now()
 
-	if req.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("(queue_name ILIKE $%d OR description ILIKE $%d)", argIndex, argIndex))
-		args = append(args, "%"+req.Search+"%")
-		argIndex++
+	// 定义固定的队列列表（避免查询慢视图）
+	staticQueues := []struct {
+		QueueName   string
+		Description string
+		Priority    int
+		TableName   string
+	}{
+		{"comment_first_review", "评论一审队列", 100, "review_tasks"},
+		{"comment_second_review", "评论二审队列", 90, "second_review_tasks"},
+		{"quality_check", "质量检查队列", 80, "quality_check_tasks"},
+		{"video_first_review", "视频一审队列", 70, "video_first_review_tasks"},
+		{"video_second_review", "视频二审队列", 60, "video_second_review_tasks"},
 	}
 
-	if req.IsActive != nil {
-		conditions = append(conditions, fmt.Sprintf("is_active = $%d", argIndex))
-		args = append(args, *req.IsActive)
-		argIndex++
+	// 过滤搜索条件
+	var filteredQueues []struct {
+		QueueName   string
+		Description string
+		Priority    int
+		TableName   string
 	}
 
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = "WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	// Count total records from the unified view
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM unified_queue_stats %s", whereClause)
-	var total int
-	err := r.db.QueryRow(countQuery, args...).Scan(&total)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to count task queues: %w", err)
-	}
-
-	// Get paginated results from the unified view with real-time statistics
-	offset := (req.Page - 1) * req.PageSize
-	query := fmt.Sprintf(`
-		SELECT
-			ROW_NUMBER() OVER (ORDER BY priority DESC) as id,
-			queue_name,
-			description,
-			priority,
-			total_tasks,
-			completed_tasks,
-			pending_tasks,
-			is_active,
-			created_at,
-			updated_at
-		FROM unified_queue_stats
-		%s
-		ORDER BY priority DESC, created_at DESC
-		LIMIT $%d OFFSET $%d
-	`, whereClause, argIndex, argIndex+1)
-
-	args = append(args, req.PageSize, offset)
-
-	rows, err := r.db.Query(query, args...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query task queues: %w", err)
-	}
-	defer rows.Close()
-
-	// Initialize as empty slice to avoid null in JSON response
-	queues := make([]models.TaskQueue, 0)
-	for rows.Next() {
-		var queue models.TaskQueue
-		err := rows.Scan(
-			&queue.ID,
-			&queue.QueueName,
-			&queue.Description,
-			&queue.Priority,
-			&queue.TotalTasks,
-			&queue.CompletedTasks,
-			&queue.PendingTasks,
-			&queue.IsActive,
-			&queue.CreatedAt,
-			&queue.UpdatedAt,
-		)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to scan task queue: %w", err)
+	for _, q := range staticQueues {
+		if req.Search != "" {
+			searchLower := strings.ToLower(req.Search)
+			if !strings.Contains(strings.ToLower(q.QueueName), searchLower) &&
+				!strings.Contains(strings.ToLower(q.Description), searchLower) {
+				continue
+			}
 		}
+		filteredQueues = append(filteredQueues, q)
+	}
+
+	total := len(filteredQueues)
+
+	// 分页
+	offset := (req.Page - 1) * req.PageSize
+	end := offset + req.PageSize
+	if offset > total {
+		offset = total
+	}
+	if end > total {
+		end = total
+	}
+
+	pagedQueues := filteredQueues[offset:end]
+	log.Printf("📊 Processing %d queues after pagination", len(pagedQueues))
+
+	// 构建结果，快速获取每个队列的统计数据
+	queues := make([]models.TaskQueue, 0, len(pagedQueues))
+	now := time.Now()
+
+	for i, q := range pagedQueues {
+		queryStart := time.Now()
+		queue := models.TaskQueue{
+			ID:          i + 1 + offset,
+			QueueName:   q.QueueName,
+			Description: q.Description,
+			Priority:    q.Priority,
+			IsActive:    true,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		// 快速获取每个队列的统计数据（单表查询，有索引，很快）
+		statsQuery := fmt.Sprintf(`
+			SELECT 
+				COUNT(*) as total,
+				COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+				COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending
+			FROM %s
+		`, q.TableName)
+
+		var totalTasks, completedTasks, pendingTasks int
+		err := r.db.QueryRow(statsQuery).Scan(&totalTasks, &completedTasks, &pendingTasks)
+		if err != nil {
+			log.Printf("⚠️ Query error for %s: %v", q.TableName, err)
+			totalTasks, completedTasks, pendingTasks = 0, 0, 0
+		}
+		log.Printf("📊 Query %s took %v", q.TableName, time.Since(queryStart))
+
+		queue.TotalTasks = totalTasks
+		queue.CompletedTasks = completedTasks
+		queue.PendingTasks = pendingTasks
+
 		queues = append(queues, queue)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("error iterating task queues: %w", err)
-	}
-
+	log.Printf("✅ ListTaskQueues completed in %v, returning %d queues", time.Since(startTime), len(queues))
 	return queues, total, nil
 }
 

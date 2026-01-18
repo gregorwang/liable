@@ -224,8 +224,9 @@ type HourlyStatItem struct {
 }
 
 type TagStats struct {
-	TagName string `json:"tag_name"`
-	Count   int    `json:"count"`
+	TagName    string  `json:"tag_name"`
+	Count      int     `json:"count"`
+	Percentage float64 `json:"percentage"` // Calculated: count / total
 }
 
 type VideoQualityTagStats struct {

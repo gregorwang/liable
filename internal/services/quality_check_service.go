@@ -1,38 +1,31 @@
 package services
 
 import (
-	"comment-review-platform/internal/config"
 	"comment-review-platform/internal/models"
 	"comment-review-platform/internal/repository"
+	"comment-review-platform/internal/services/base"
 	redispkg "comment-review-platform/pkg/redis"
-	"context"
 	"errors"
-	"fmt"
 	"log"
-	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
 type QualityCheckService struct {
 	qcRepo *repository.QualityCheckRepository
-	rdb    *redis.Client
-	ctx    context.Context
+	base   *base.BaseTaskService
 }
 
 func NewQualityCheckService() *QualityCheckService {
 	return &QualityCheckService{
 		qcRepo: repository.NewQualityCheckRepository(),
-		rdb:    redispkg.Client,
-		ctx:    context.Background(),
+		base:   base.NewBaseTaskService(base.QualityCheckTaskServiceConfig(), redispkg.Client),
 	}
 }
 
 // ClaimQCTasks allows a reviewer to claim quality check tasks with custom count (1-50)
 func (s *QualityCheckService) ClaimQCTasks(reviewerID int, count int) ([]models.QualityCheckTask, error) {
-	// Validate count (1-50)
-	if count < 1 || count > 50 {
-		return nil, errors.New("claim count must be between 1 and 50")
+	// Validate count using base service
+	if err := s.base.ValidateClaimCount(count); err != nil {
+		return nil, err
 	}
 
 	// Check if user already has uncompleted QC tasks
@@ -41,8 +34,8 @@ func (s *QualityCheckService) ClaimQCTasks(reviewerID int, count int) ([]models.
 		return nil, err
 	}
 
-	if len(existingTasks) > 0 {
-		return nil, fmt.Errorf("you still have %d uncompleted QC tasks, please complete or return them first", len(existingTasks))
+	if err := s.base.CheckExistingTasks(len(existingTasks)); err != nil {
+		return nil, err
 	}
 
 	// Claim tasks from database
@@ -55,23 +48,12 @@ func (s *QualityCheckService) ClaimQCTasks(reviewerID int, count int) ([]models.
 		return []models.QualityCheckTask{}, nil
 	}
 
-	// Add tasks to Redis for tracking
-	userClaimedKey := fmt.Sprintf("qc_task:claimed:%d", reviewerID)
-	timeout := time.Duration(config.AppConfig.TaskTimeoutMinutes) * time.Minute
-
-	pipe := s.rdb.Pipeline()
-	for _, task := range tasks {
-		// Add to user's claimed set
-		pipe.SAdd(s.ctx, userClaimedKey, task.ID)
-
-		// Set lock for each task
-		lockKey := fmt.Sprintf("qc_task:lock:%d", task.ID)
-		pipe.Set(s.ctx, lockKey, reviewerID, timeout)
+	// Track tasks in Redis using base service
+	taskIDs := make([]int, len(tasks))
+	for i, task := range tasks {
+		taskIDs[i] = task.ID
 	}
-	pipe.Expire(s.ctx, userClaimedKey, timeout)
-
-	_, err = pipe.Exec(s.ctx)
-	if err != nil {
+	if err := s.base.TrackClaimedTasks(reviewerID, taskIDs); err != nil {
 		log.Printf("Redis error when claiming QC tasks: %v", err)
 	}
 
@@ -103,18 +85,8 @@ func (s *QualityCheckService) SubmitQCReview(reviewerID int, req models.SubmitQC
 		return err
 	}
 
-	// Remove from Redis
-	userClaimedKey := fmt.Sprintf("qc_task:claimed:%d", reviewerID)
-	lockKey := fmt.Sprintf("qc_task:lock:%d", req.TaskID)
-
-	pipe := s.rdb.Pipeline()
-	pipe.SRem(s.ctx, userClaimedKey, req.TaskID)
-	pipe.Del(s.ctx, lockKey)
-	_, err := pipe.Exec(s.ctx)
-
-	if err != nil {
-		log.Printf("Redis error when submitting QC review: %v", err)
-	}
+	// Cleanup Redis tracking using base service
+	s.base.CleanupSingleTask(reviewerID, req.TaskID)
 
 	return nil
 }
@@ -131,9 +103,9 @@ func (s *QualityCheckService) SubmitBatchQCReviews(reviewerID int, reviews []mod
 
 // ReturnQCTasks allows a reviewer to return quality check tasks back to the pool
 func (s *QualityCheckService) ReturnQCTasks(reviewerID int, taskIDs []int) (int, error) {
-	// Validate task count (1-50)
-	if len(taskIDs) < 1 || len(taskIDs) > 50 {
-		return 0, errors.New("return count must be between 1 and 50")
+	// Validate return count using base service
+	if err := s.base.ValidateReturnCount(len(taskIDs)); err != nil {
+		return 0, err
 	}
 
 	// Return tasks in database
@@ -146,23 +118,8 @@ func (s *QualityCheckService) ReturnQCTasks(reviewerID int, taskIDs []int) (int,
 		return 0, errors.New("no QC tasks were returned, please check if the tasks belong to you")
 	}
 
-	// Clean up Redis
-	userClaimedKey := fmt.Sprintf("qc_task:claimed:%d", reviewerID)
-	pipe := s.rdb.Pipeline()
-
-	for _, taskID := range taskIDs {
-		// Remove from user's claimed set
-		pipe.SRem(s.ctx, userClaimedKey, taskID)
-
-		// Remove task lock
-		lockKey := fmt.Sprintf("qc_task:lock:%d", taskID)
-		pipe.Del(s.ctx, lockKey)
-	}
-
-	_, err = pipe.Exec(s.ctx)
-	if err != nil {
-		log.Printf("Redis error when returning QC tasks: %v", err)
-	}
+	// Cleanup Redis tracking using base service
+	s.base.CleanupTaskTracking(reviewerID, taskIDs)
 
 	return returnedCount, nil
 }
@@ -174,7 +131,7 @@ func (s *QualityCheckService) GetQCStats(reviewerID int) (*models.QCStats, error
 
 // ReleaseExpiredQCTasks releases quality check tasks that have exceeded the timeout
 func (s *QualityCheckService) ReleaseExpiredQCTasks() error {
-	timeoutMinutes := config.AppConfig.TaskTimeoutMinutes
+	timeoutMinutes := s.base.GetTaskTimeoutMinutes()
 	expiredTasks, err := s.qcRepo.FindExpiredQCTasks(timeoutMinutes)
 	if err != nil {
 		return err
@@ -187,13 +144,9 @@ func (s *QualityCheckService) ReleaseExpiredQCTasks() error {
 			continue
 		}
 
-		// Clean up Redis
+		// Clean up Redis using base service
 		if task.ReviewerID != nil {
-			userClaimedKey := fmt.Sprintf("qc_task:claimed:%d", *task.ReviewerID)
-			lockKey := fmt.Sprintf("qc_task:lock:%d", task.ID)
-
-			s.rdb.SRem(s.ctx, userClaimedKey, task.ID)
-			s.rdb.Del(s.ctx, lockKey)
+			s.base.CleanupSingleTask(*task.ReviewerID, task.ID)
 		}
 
 		log.Printf("Released expired QC task %d", task.ID)

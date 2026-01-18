@@ -342,7 +342,7 @@ const loadTagStats = async () => {
   tagStatsLoading.value = true
   try {
     const res = await getTagStats()
-    tagStats.value = res.stats
+    tagStats.value = res.tags
   } catch (error) {
     console.error('Failed to load tag stats:', error)
   } finally {

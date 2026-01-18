@@ -146,9 +146,16 @@ export interface TodayReviewStats {
   }
 }
 
-export interface HourlyStats {
+// Single hourly stat item
+export interface HourlyStatItem {
   hour: number
   count: number
+}
+
+// Hourly stats response with date and hours array
+export interface HourlyStats {
+  date: string
+  hours: HourlyStatItem[]
 }
 
 export interface TagStats {
@@ -244,14 +251,14 @@ export interface TaskSearchResult {
   completed_at: string | null
   created_at: string
   queue_type: 'first' | 'second'
-  
+
   // First review result fields (if available)
   review_id: number | null
   is_approved: boolean | null
   tags: string[]
   reason: string | null
   reviewed_at: string | null
-  
+
   // Second review specific fields (only for second review tasks)
   second_review_id?: number | null
   second_is_approved?: boolean | null
@@ -260,7 +267,7 @@ export interface TaskSearchResult {
   second_reviewed_at?: string | null
   second_reviewer_id?: number | null
   second_username?: string | null
-  
+
   // First review info for second review tasks
   first_reviewer_id?: number | null
   first_username?: string | null
@@ -477,11 +484,24 @@ export interface TikTokVideo {
   updated_at: string
 }
 
+// Video Quality Tag for video first/second review (legacy)
 export interface VideoQualityTag {
   id: number
   name: string
   description: string
   category: 'content' | 'technical' | 'compliance' | 'engagement'
+  is_active: boolean
+  created_at: string
+}
+
+// Video Queue Tag for video queue pool system (with scope and queue_id)
+export interface VideoQueueTag {
+  id: number
+  name: string
+  description: string
+  category: 'content' | 'technical' | 'compliance' | 'engagement'
+  scope: string
+  queue_id: string | null
   is_active: boolean
   created_at: string
 }

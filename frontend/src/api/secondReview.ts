@@ -1,44 +1,43 @@
-import request from './request'
-import type { 
-  SecondReviewTasksResponse, 
+import { createTaskApi, SecondReviewApiConfig } from './taskApiFactory'
+import type {
+  SecondReviewTasksResponse,
   SubmitSecondReviewRequest
 } from '../types'
+
+// 使用工厂函数创建基础 API
+const baseApi = createTaskApi<any, SubmitSecondReviewRequest>(SecondReviewApiConfig)
 
 /**
  * Claim second review tasks
  */
 export function claimSecondReviewTasks(count: number) {
-  return request.post<any, SecondReviewTasksResponse>('/tasks/second-review/claim', { count })
+  return baseApi.claimTasks(count) as Promise<SecondReviewTasksResponse>
 }
 
 /**
  * Get my second review tasks
  */
 export function getMySecondReviewTasks() {
-  return request.get<any, SecondReviewTasksResponse>('/tasks/second-review/my')
+  return baseApi.getMyTasks() as Promise<SecondReviewTasksResponse>
 }
 
 /**
  * Submit single second review
  */
 export function submitSecondReview(review: SubmitSecondReviewRequest) {
-  return request.post<any, { message: string }>('/tasks/second-review/submit', review)
+  return baseApi.submitReview(review)
 }
 
 /**
  * Submit batch second reviews
  */
 export function submitBatchSecondReviews(reviews: SubmitSecondReviewRequest[]) {
-  return request.post<any, { message: string; submitted: number }>('/tasks/second-review/submit-batch', {
-    reviews,
-  })
+  return baseApi.submitBatchReviews(reviews)
 }
 
 /**
  * Return second review tasks back to pool
  */
 export function returnSecondReviewTasks(taskIds: number[]) {
-  return request.post<any, { message: string; count: number }>('/tasks/second-review/return', {
-    task_ids: taskIds,
-  })
+  return baseApi.returnTasks(taskIds)
 }
