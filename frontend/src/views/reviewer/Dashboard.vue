@@ -18,20 +18,22 @@
       </el-header>
       
       <el-main class="main-content">
-        <div class="stats-bar">
-          <el-card shadow="hover">
-            <div class="stat-item">
-              <span class="stat-label">待审核任务</span>
-              <span class="stat-value">{{ taskStore.tasks.length }}</span>
-            </div>
-          </el-card>
-          
-          <el-card shadow="hover">
-            <div class="stat-item">
-              <span class="stat-label">今日已完成</span>
-              <span class="stat-value">0</span>
-            </div>
-          </el-card>
+        <div class="stats-inline">
+          <div class="stat-chip">
+            <span class="stat-label">待审核任务</span>
+            <span class="stat-value">{{ taskStore.tasks.length }}</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-label">今日已完成</span>
+            <span class="stat-value">{{ completedToday }}</span>
+          </div>
+        </div>
+
+        <div class="progress-bar">
+          <el-progress
+            :percentage="sessionProgress"
+            :format="() => `${completedToday}/${sessionTotal}`"
+          />
         </div>
         
         <div class="actions-bar">
@@ -76,7 +78,8 @@
           
           <el-button
             size="large"
-            :disabled="selectedReviews.length === 0"
+            :disabled="selectedReviews.length === 0 || batchLoading"
+            :loading="batchLoading"
             @click="handleBatchSubmit"
           >
             批量提交（{{ selectedReviews.length }}条）
@@ -99,17 +102,50 @@
             v-for="task in taskStore.tasks"
             :key="task.id"
             class="task-card"
+            :class="{
+              'is-filled': isReviewReady(task.id),
+              'is-selected': batchSelection[task.id],
+              'is-active': activeTaskId === task.id
+            }"
             shadow="hover"
+            :data-task-id="task.id"
+            @click="setActiveTask(task.id)"
+            @focusin="setActiveTask(task.id)"
           >
             <div v-if="reviews[task.id]" class="task-content">
+              <div class="task-header">
+                <span class="task-id">任务 #{{ task.id }}</span>
+                <div class="task-header-actions">
+                  <el-tag v-if="isReviewReady(task.id)" type="success" size="small">已填写</el-tag>
+                  <el-checkbox
+                    v-model="batchSelection[task.id]"
+                    :disabled="!isReviewReady(task.id)"
+                  >
+                    批量提交
+                  </el-checkbox>
+                </div>
+              </div>
+
               <div class="comment-text">
                 {{ task.comment?.text || '评论内容加载中...' }}
               </div>
               
               <el-divider />
               
+              <div class="quick-actions">
+                <el-button size="small" @click="applyQuickReject(task.id, '垃圾', '内容属于垃圾信息')">
+                  垃圾信息
+                </el-button>
+                <el-button size="small" @click="applyQuickReject(task.id, '广告', '内容包含广告或推广')">
+                  广告推广
+                </el-button>
+                <el-button size="small" @click="applyQuickReject(task.id, '人身攻击', '内容包含辱骂/人身攻击')">
+                  辱骂攻击
+                </el-button>
+              </div>
+
               <el-form label-position="top" size="default">
-                <el-form-item label="审核结果">
+                <el-form-item label="审核结果" required>
                   <el-radio-group v-model="getReview(task.id).is_approved">
                     <el-radio :value="true">通过</el-radio>
                     <el-radio :value="false">不通过</el-radio>
@@ -119,6 +155,7 @@
                 <el-form-item
                   v-if="!getReview(task.id).is_approved"
                   label="违规标签"
+                  required
                 >
                   <el-checkbox-group v-model="getReview(task.id).tags">
                     <el-checkbox
@@ -134,6 +171,7 @@
                 <el-form-item
                   v-if="!getReview(task.id).is_approved"
                   label="原因"
+                  required
                 >
                   <el-input
                     v-model="getReview(task.id).reason"
@@ -147,10 +185,12 @@
               <div class="task-actions">
                 <el-button
                   type="primary"
+                  :loading="submitLoading[task.id]"
                   @click="handleSubmitSingle(task.id)"
                 >
                   提交审核
                 </el-button>
+                <el-button @click="clearReviewForm(task.id)">清空</el-button>
               </div>
             </div>
           </el-card>
@@ -161,7 +201,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
@@ -178,7 +218,47 @@ const claimLoading = ref(false)
 const claimCount = ref(20)
 const returnCount = ref(1)
 const reviews = reactive<Record<number, ReviewResult>>({})
+const batchSelection = reactive<Record<number, boolean>>({})
+const submitLoading = reactive<Record<number, boolean>>({})
+const batchLoading = ref(false)
 const currentTaskName = ref<string>('')
+const activeTaskId = ref<number | null>(null)
+const completedToday = ref(0)
+const sessionTotal = computed(() => completedToday.value + taskStore.tasks.length)
+const sessionProgress = computed(() => {
+  return sessionTotal.value ? Math.round((completedToday.value / sessionTotal.value) * 100) : 0
+})
+
+const draftStorageKey = 'reviewer_dashboard_drafts'
+const statsStorageKey = 'reviewer_dashboard_stats'
+
+const loadTodayStats = () => {
+  const raw = localStorage.getItem(statsStorageKey)
+  if (!raw) {
+    completedToday.value = 0
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    const today = new Date().toISOString().slice(0, 10)
+    if (parsed?.date !== today) {
+      completedToday.value = 0
+      localStorage.setItem(statsStorageKey, JSON.stringify({ date: today, completed: 0 }))
+      return
+    }
+    completedToday.value = parsed.completed || 0
+  } catch (error) {
+    console.error('Failed to parse stats:', error)
+    completedToday.value = 0
+  }
+}
+
+const incrementTodayCompleted = (count: number) => {
+  const today = new Date().toISOString().slice(0, 10)
+  completedToday.value += count
+  localStorage.setItem(statsStorageKey, JSON.stringify({ date: today, completed: completedToday.value }))
+}
 
 // Safe access to reviews
 const getReview = (taskId: number) => {
@@ -195,12 +275,179 @@ const getReview = (taskId: number) => {
 
 const selectedReviews = computed(() => {
   return Object.entries(reviews)
-    .filter(([_, review]) => review.is_approved !== null)
+    .filter(([taskId, review]) => batchSelection[parseInt(taskId)] && isReviewReady(parseInt(taskId)))
     .map(([taskId, review]) => ({
       ...review,
       task_id: parseInt(taskId),
     }))
 })
+
+const isReviewReady = (taskId: number) => {
+  const review = reviews[taskId]
+  if (!review) return false
+  if (review.is_approved === null) return false
+  if (!review.is_approved) {
+    return review.tags.length > 0 && review.reason.trim().length > 0
+  }
+  return true
+}
+
+const setActiveTask = (taskId: number) => {
+  activeTaskId.value = taskId
+}
+
+const scrollToTask = async (taskId: number) => {
+  await nextTick()
+  const el = document.querySelector(`[data-task-id="${taskId}"]`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+const moveActiveTask = (direction: 'next' | 'prev') => {
+  const ids = taskStore.tasks.map(task => task.id)
+  if (ids.length === 0) return
+  const currentId = activeTaskId.value ?? ids[0]
+  const currentIndex = ids.indexOf(currentId)
+  const nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1
+  const targetId = ids[Math.min(Math.max(nextIndex, 0), ids.length - 1)]
+  activeTaskId.value = targetId
+  scrollToTask(targetId)
+}
+
+const clearReviewForm = (taskId: number) => {
+  reviews[taskId] = {
+    task_id: taskId,
+    is_approved: null as any,
+    tags: [],
+    reason: '',
+  }
+  batchSelection[taskId] = false
+}
+
+const applyQuickReject = (taskId: number, tagName: string, reason: string) => {
+  const review = getReview(taskId)
+  review.is_approved = false as any
+  const tagExists = taskStore.tags.some(tag => tag.name === tagName)
+  review.tags = tagExists ? [tagName] : review.tags
+  review.reason = reason
+}
+
+const handleKeyPress = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  const targetTag = target?.tagName?.toLowerCase()
+  const isTyping = targetTag === 'input' || targetTag === 'textarea' || target?.isContentEditable
+  if (isTyping) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault()
+      handleBatchSubmit()
+    }
+    return
+  }
+
+  if (taskStore.tasks.length === 0) return
+  const currentId = activeTaskId.value ?? taskStore.tasks[0]?.id
+  if (!currentId) return
+
+  switch (event.key) {
+    case '1':
+      getReview(currentId).is_approved = true as any
+      break
+    case '2':
+      getReview(currentId).is_approved = false as any
+      break
+    case 'Enter':
+      event.preventDefault()
+      handleSubmitSingle(currentId)
+      break
+    case 'Escape':
+      event.preventDefault()
+      clearReviewForm(currentId)
+      break
+    case 'r':
+    case 'R':
+      event.preventDefault()
+      handleRefresh()
+      break
+    case 'Tab':
+      event.preventDefault()
+      moveActiveTask(event.shiftKey ? 'prev' : 'next')
+      break
+    case 'q':
+    case 'Q':
+      event.preventDefault()
+      applyQuickReject(currentId, '垃圾', '内容属于垃圾信息')
+      break
+    default:
+      break
+  }
+}
+
+const restoreDrafts = () => {
+  const raw = localStorage.getItem(draftStorageKey)
+  if (!raw) return
+
+  try {
+    const saved = JSON.parse(raw)
+    const savedReviews = saved?.reviews || saved
+    const savedSelection = saved?.batchSelection || {}
+    const taskIds = new Set(taskStore.tasks.map(t => t.id))
+
+    Object.entries(savedReviews).forEach(([taskId, review]) => {
+      const id = Number(taskId)
+      if (!taskIds.has(id)) return
+      reviews[id] = { ...getReview(id), ...(review as ReviewResult) }
+    })
+
+    Object.entries(savedSelection).forEach(([taskId, value]) => {
+      const id = Number(taskId)
+      if (!taskIds.has(id)) return
+      batchSelection[id] = Boolean(value)
+    })
+  } catch (error) {
+    console.error('Failed to restore drafts:', error)
+  }
+}
+
+let draftTimer: number | undefined
+
+watch(
+  reviews,
+  () => {
+    if (draftTimer) window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      const payload = {
+        reviews,
+        batchSelection
+      }
+      localStorage.setItem(draftStorageKey, JSON.stringify(payload))
+    }, 500)
+  },
+  { deep: true }
+)
+
+watch(
+  batchSelection,
+  () => {
+    if (draftTimer) window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      const payload = {
+        reviews,
+        batchSelection
+      }
+      localStorage.setItem(draftStorageKey, JSON.stringify(payload))
+    }, 500)
+  },
+  { deep: true }
+)
+
+watch(
+  () => taskStore.tasks.length,
+  (count) => {
+    document.title = `(${count}) 审核工作台`
+  },
+  { immediate: true }
+)
 
 onMounted(async () => {
   // 从sessionStorage获取当前任务信息
@@ -219,9 +466,17 @@ onMounted(async () => {
     await taskStore.fetchTags()
     await taskStore.fetchMyTasks()
     initReviews()
+    restoreDrafts()
+    loadTodayStats()
   } catch (error) {
     console.error('Failed to load data:', error)
   }
+
+  window.addEventListener('keydown', handleKeyPress)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyPress)
 })
 
 const initReviews = () => {
@@ -230,6 +485,12 @@ const initReviews = () => {
   Object.keys(reviews).forEach(key => {
     if (!taskIds.has(parseInt(key))) {
       delete reviews[parseInt(key)]
+    }
+  })
+
+  Object.keys(batchSelection).forEach((key) => {
+    if (!taskIds.has(parseInt(key))) {
+      delete batchSelection[parseInt(key)]
     }
   })
   
@@ -243,10 +504,18 @@ const initReviews = () => {
         reason: '',
       }
     }
+
+    if (batchSelection[task.id] === undefined) {
+      batchSelection[task.id] = false
+    }
   })
   
   // 重置退单数量为1
   returnCount.value = Math.min(1, taskStore.tasks.length)
+
+  if (taskStore.tasks.length > 0 && !taskIds.has(activeTaskId.value || -1)) {
+    activeTaskId.value = taskStore.tasks[0].id
+  }
 }
 
 const handleClaimTasks = async () => {
@@ -261,8 +530,10 @@ const handleClaimTasks = async () => {
     ElMessage.success(`成功领取 ${res.count} 条任务`)
     await taskStore.fetchMyTasks()
     initReviews()
+    restoreDrafts()
   } catch (error) {
     console.error('Failed to claim tasks:', error)
+    ElMessage.error('领取任务失败，请稍后重试')
   } finally {
     claimLoading.value = false
   }
@@ -272,9 +543,11 @@ const handleRefresh = async () => {
   try {
     await taskStore.fetchMyTasks()
     initReviews()
+    restoreDrafts()
     ElMessage.success('刷新成功')
   } catch (error) {
     console.error('Failed to refresh:', error)
+    ElMessage.error('刷新失败，请稍后重试')
   }
 }
 
@@ -303,12 +576,21 @@ const handleSubmitSingle = async (taskId: number) => {
   if (!review || !validateReview(review)) return
   
   try {
+    submitLoading[taskId] = true
     await submitReview(review)
     ElMessage.success('提交成功')
     taskStore.removeTask(taskId)
     delete reviews[taskId]
+    batchSelection[taskId] = false
+    incrementTodayCompleted(1)
+    await taskStore.fetchMyTasks()
+    initReviews()
+    restoreDrafts()
   } catch (error) {
     console.error('Failed to submit review:', error)
+    ElMessage.error('提交失败，请稍后重试')
+  } finally {
+    submitLoading[taskId] = false
   }
 }
 
@@ -338,18 +620,26 @@ const handleBatchSubmit = async () => {
       }
     )
     
+    batchLoading.value = true
     const res = await submitBatchReviews(validReviews)
     ElMessage.success(`成功提交 ${res.submitted} 条审核`)
-    
-    // Remove submitted tasks
+
     validReviews.forEach((review) => {
       taskStore.removeTask(review.task_id)
       delete reviews[review.task_id]
+      batchSelection[review.task_id] = false
     })
+    incrementTodayCompleted(res.submitted || validReviews.length)
+    await taskStore.fetchMyTasks()
+    initReviews()
+    restoreDrafts()
   } catch (error: any) {
     if (error !== 'cancel') {
       console.error('Failed to batch submit:', error)
+      ElMessage.error('批量提交失败，请稍后重试')
     }
+  } finally {
+    batchLoading.value = false
   }
 }
 
@@ -397,9 +687,11 @@ const handleReturnTasks = async () => {
     // 刷新任务列表
     await taskStore.fetchMyTasks()
     initReviews()
+    restoreDrafts()
   } catch (error: any) {
     if (error !== 'cancel') {
       console.error('Failed to return tasks:', error)
+      ElMessage.error('退单失败，请稍后重试')
     }
   }
 }
@@ -493,18 +785,28 @@ const handleLogout = async () => {
 /* ============================================
    统计栏
    ============================================ */
-.stats-bar {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--spacing-5);
-  margin-bottom: var(--spacing-6);
+.stats-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+  flex-wrap: wrap;
 }
 
-.stat-item {
+.progress-bar {
+  margin-bottom: var(--spacing-5);
+  padding: 0 var(--spacing-2);
+}
+
+.stat-chip {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3);
-  padding: var(--spacing-2);
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  background: var(--color-bg-000);
+  border: 1px solid var(--color-border-lighter);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .stat-label {
@@ -515,10 +817,9 @@ const handleLogout = async () => {
 }
 
 .stat-value {
-  font-size: var(--text-4xl);
-  font-weight: 700;
+  font-size: var(--text-lg);
+  font-weight: 600;
   color: var(--color-accent-main);
-  line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight);
 }
 
@@ -566,6 +867,46 @@ const handleLogout = async () => {
 .task-card {
   transition: all var(--transition-base);
   border: 1px solid var(--color-border-lighter);
+  position: relative;
+}
+
+.task-card.is-filled {
+  border-color: rgba(64, 158, 255, 0.5);
+}
+
+.task-card.is-selected {
+  border-color: var(--color-accent-main);
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+}
+
+.task-card.is-active {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(103, 194, 58, 0.2);
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-3);
+}
+
+.task-id {
+  font-weight: 600;
+  color: var(--color-text-100);
+}
+
+.task-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.quick-actions {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-3);
 }
 
 .task-card:hover {
@@ -611,9 +952,8 @@ const handleLogout = async () => {
     padding: var(--spacing-4);
   }
 
-  .stats-bar {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-3);
+  .stats-inline {
+    gap: var(--spacing-2);
   }
 
   .actions-bar {

@@ -146,12 +146,7 @@ export const SecondReviewApiConfig: TaskApiConfig = {
     taskTypeName: 'second review'
 }
 
-export const VideoFirstReviewApiConfig: TaskApiConfig = {
-    basePath: '/tasks/video-first-review',
-    taskTypeName: 'video first review'
-}
-
-export const VideoSecondReviewApiConfig: TaskApiConfig = {
-    basePath: '/tasks/video-second-review',
-    taskTypeName: 'video second review'
+export const AIHumanDiffApiConfig: TaskApiConfig = {
+    basePath: '/tasks/ai-human-diff',
+    taskTypeName: 'ai human diff'
 }

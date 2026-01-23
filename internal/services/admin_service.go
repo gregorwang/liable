@@ -5,11 +5,15 @@ import (
 	"comment-review-platform/internal/repository"
 	redispkg "comment-review-platform/pkg/redis"
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AdminService struct {
@@ -37,6 +41,77 @@ func (s *AdminService) GetAllUsers() ([]models.User, error) {
 // ApproveUser approves or rejects a user
 func (s *AdminService) ApproveUser(userID int, status string) error {
 	return s.userRepo.UpdateStatus(userID, status)
+}
+
+func (s *AdminService) CreateUser(req models.CreateUserRequest) (*models.User, error) {
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		return nil, errors.New("用户名不能为空")
+	}
+
+	if existing, _ := s.userRepo.FindByUsername(username); existing != nil {
+		return nil, errors.New("用户名已存在")
+	}
+
+	var emailPtr *string
+	if req.Email != nil {
+		email := strings.TrimSpace(*req.Email)
+		if email != "" {
+			if existing, _ := s.userRepo.FindByEmail(email); existing != nil {
+				return nil, errors.New("邮箱已被注册")
+			}
+			emailPtr = &email
+		}
+	}
+
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		role = "reviewer"
+	}
+
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = "approved"
+	}
+
+	password := ""
+	if req.Password != nil {
+		password = strings.TrimSpace(*req.Password)
+	}
+	if password == "" {
+		if emailPtr == nil {
+			return nil, errors.New("未填写邮箱时必须设置密码")
+		}
+		generated, err := generateRandomPassword(16)
+		if err != nil {
+			return nil, err
+		}
+		password = generated
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+
+	user := &models.User{
+		Username:      username,
+		Password:      string(hashedPassword),
+		Email:         emailPtr,
+		EmailVerified: emailPtr != nil,
+		Role:          role,
+		Status:        status,
+	}
+
+	if err := s.userRepo.Create(user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (s *AdminService) DeleteUser(userID int) error {
+	return s.userRepo.DeleteByID(userID)
 }
 
 // GetAllTags retrieves all tags
@@ -67,6 +142,21 @@ func (s *AdminService) UpdateTag(id int, name, description string, isActive *boo
 // DeleteTag deletes a tag
 func (s *AdminService) DeleteTag(id int) error {
 	return s.tagRepo.Delete(id)
+}
+
+func generateRandomPassword(length int) (string, error) {
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	if length <= 0 {
+		length = 16
+	}
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	for i, b := range bytes {
+		bytes[i] = alphabet[int(b)%len(alphabet)]
+	}
+	return string(bytes), nil
 }
 
 type TaskQueueService struct {
@@ -109,27 +199,40 @@ func (s *TaskQueueService) GetTaskQueueByID(id int) (*models.TaskQueue, error) {
 
 // ListTaskQueues retrieves task queues with pagination (with Redis caching)
 func (s *TaskQueueService) ListTaskQueues(req models.ListTaskQueuesRequest) (*models.ListTaskQueuesResponse, error) {
-	log.Printf("🚀 ListTaskQueues service called")
-	
-	// 直接返回硬编码数据测试前端
-	now := time.Now()
-	queues := []models.TaskQueue{
-		{ID: 1, QueueName: "comment_first_review", Description: "评论一审队列", Priority: 100, TotalTasks: 5323, CompletedTasks: 36, PendingTasks: 5287, IsActive: true, CreatedAt: now, UpdatedAt: now},
-		{ID: 2, QueueName: "comment_second_review", Description: "评论二审队列", Priority: 90, TotalTasks: 11, CompletedTasks: 9, PendingTasks: 2, IsActive: true, CreatedAt: now, UpdatedAt: now},
-		{ID: 3, QueueName: "quality_check", Description: "质量检查队列", Priority: 80, TotalTasks: 0, CompletedTasks: 0, PendingTasks: 0, IsActive: true, CreatedAt: now, UpdatedAt: now},
-		{ID: 4, QueueName: "video_first_review", Description: "视频一审队列", Priority: 70, TotalTasks: 88, CompletedTasks: 41, PendingTasks: 47, IsActive: true, CreatedAt: now, UpdatedAt: now},
-		{ID: 5, QueueName: "video_second_review", Description: "视频二审队列", Priority: 60, TotalTasks: 0, CompletedTasks: 0, PendingTasks: 0, IsActive: true, CreatedAt: now, UpdatedAt: now},
+	cacheKey := s.buildCacheKey(req)
+	if s.rdb != nil {
+		if cached, err := s.rdb.Get(s.ctx, cacheKey).Result(); err == nil {
+			var response models.ListTaskQueuesResponse
+			if err := json.Unmarshal([]byte(cached), &response); err == nil {
+				return &response, nil
+			}
+		}
+	}
+
+	queues, total, err := s.repo.ListTaskQueues(req)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := total / req.PageSize
+	if total%req.PageSize > 0 {
+		totalPages++
 	}
 
 	response := &models.ListTaskQueuesResponse{
 		Data:       queues,
-		Total:      5,
-		Page:       1,
-		PageSize:   20,
-		TotalPages: 1,
+		Total:      total,
+		Page:       req.Page,
+		PageSize:   req.PageSize,
+		TotalPages: totalPages,
 	}
 
-	log.Printf("✅ Returning %d queues", len(queues))
+	if s.rdb != nil {
+		if payload, err := json.Marshal(response); err == nil {
+			s.rdb.Set(s.ctx, cacheKey, payload, queueStatsCacheTTL)
+		}
+	}
+
 	return response, nil
 }
 

@@ -1,5 +1,5 @@
 import request from './request'
-import type { LoginResponse, RegisterResponse, User } from '../types'
+import type { LoginResponse, RegisterResponse, ProfileResponse } from '../types'
 
 /**
  * Login
@@ -25,7 +25,7 @@ export function register(username: string, password: string) {
  * Get current user profile
  */
 export function getProfile() {
-  return request.get<any, { user: User }>('/auth/profile')
+  return request.get<any, ProfileResponse>('/auth/profile')
 }
 
 /**

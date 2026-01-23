@@ -75,6 +75,32 @@ func (r *TagRepository) FindActive() ([]models.TagConfig, error) {
 	return tags, nil
 }
 
+// FindActiveNamesByScope returns active tag names for a scope (e.g. "comment").
+func (r *TagRepository) FindActiveNamesByScope(scope string) ([]string, error) {
+	query := `
+		SELECT name
+		FROM tag_config
+		WHERE is_active = true
+		  AND ($1 = '' OR scope = $1)
+		ORDER BY name
+	`
+	rows, err := r.db.Query(query, scope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // FindByID finds a tag by ID
 func (r *TagRepository) FindByID(id int) (*models.TagConfig, error) {
 	query := `
@@ -103,16 +129,16 @@ func (r *TagRepository) Update(id int, name, description string, isActive *bool)
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	
+
 	if rowsAffected == 0 {
 		return errors.New("tag not found")
 	}
-	
+
 	return nil
 }
 
@@ -123,16 +149,15 @@ func (r *TagRepository) Delete(id int) error {
 	if err != nil {
 		return err
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	
+
 	if rowsAffected == 0 {
 		return errors.New("tag not found")
 	}
-	
+
 	return nil
 }
-

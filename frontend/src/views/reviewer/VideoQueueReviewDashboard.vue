@@ -19,29 +19,22 @@
 
       <el-main class="main-content">
         <!-- 统计栏 -->
-        <div class="stats-bar">
-          <el-card shadow="hover">
-            <div class="stat-item">
-              <span class="stat-label">当前队列</span>
-              <span class="stat-value pool-badge" :class="`pool-${currentPool}`">
-                {{ getPoolName(currentPool) }}
-              </span>
-            </div>
-          </el-card>
+        <div class="stats-inline">
+          <div class="stat-chip">
+            <span class="stat-label">待审核任务</span>
+            <span class="stat-value">{{ tasks.length }}</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-label">今日已完成</span>
+            <span class="stat-value">{{ todayCompleted }}</span>
+          </div>
+        </div>
 
-          <el-card shadow="hover">
-            <div class="stat-item">
-              <span class="stat-label">待审核任务</span>
-              <span class="stat-value">{{ tasks.length }}</span>
-            </div>
-          </el-card>
-
-          <el-card shadow="hover">
-            <div class="stat-item">
-              <span class="stat-label">今日已完成</span>
-              <span class="stat-value">{{ todayCompleted }}</span>
-            </div>
-          </el-card>
+        <div class="progress-bar">
+          <el-progress
+            :percentage="sessionProgress"
+            :format="() => `${todayCompleted}/${sessionTotal}`"
+          />
         </div>
 
         <!-- 操作栏 -->
@@ -88,7 +81,8 @@
           <el-button
             type="success"
             size="large"
-            :disabled="selectedReviews.length === 0"
+            :disabled="selectedReviews.length === 0 || batchLoading"
+            :loading="batchLoading"
             @click="handleBatchSubmit"
           >
             批量提交（{{ selectedReviews.length }}条）
@@ -113,30 +107,52 @@
             v-for="task in tasks"
             :key="task.id"
             class="task-card"
-            :class="{ 'task-reviewed': reviewData[task.id] }"
+            :class="{
+              'task-reviewed': reviewData[task.id],
+              'is-selected': batchSelection[task.id],
+              'is-active': activeTaskId === task.id
+            }"
+            :data-task-id="task.id"
+            @click="setActiveTask(task.id)"
+            @focusin="setActiveTask(task.id)"
           >
             <div class="task-header">
               <span class="task-id">任务 #{{ task.id }}</span>
               <span class="video-filename">{{ task.video?.filename || '未知文件' }}</span>
-              <el-tag v-if="reviewData[task.id]" type="success" size="small">已填写</el-tag>
+              <div class="task-header-actions">
+                <el-tag v-if="isReviewReady(task.id)" type="success" size="small">已填写</el-tag>
+                <el-checkbox
+                  v-model="batchSelection[task.id]"
+                  :disabled="!isReviewReady(task.id)"
+                >
+                  批量提交
+                </el-checkbox>
+              </div>
             </div>
 
             <div class="task-content-wrapper">
               <!-- 视频播放器 -->
               <div class="video-container">
+                <div v-if="!videoLoaded[task.id]" class="video-placeholder">
+                  <el-button type="primary" :loading="videoLoading[task.id]" @click="loadVideo(task)">
+                    <el-icon><VideoPlay /></el-icon>
+                    加载视频
+                  </el-button>
+                  <p v-if="task.video?.file_size">
+                    点击加载视频 ({{ formatFileSize(task.video.file_size) }})
+                  </p>
+                  <p v-else>点击加载视频</p>
+                </div>
                 <video
-                  v-if="task.video?.video_url"
-                  :src="task.video.video_url"
+                  v-else
+                  :src="task.video?.video_url"
                   controls
-                  preload="metadata"
+                  preload="none"
                   class="video-player"
                   @error="handleVideoError(task)"
                 >
                   您的浏览器不支持视频播放
                 </video>
-                <div v-else class="video-placeholder">
-                  <el-button type="primary" @click="loadVideo(task)">加载视频</el-button>
-                </div>
               </div>
 
               <!-- 审核表单 -->
@@ -218,6 +234,7 @@
                   <el-button
                     type="primary"
                     :disabled="!isReviewFormValid(task.id)"
+                    :loading="submitLoading[task.id]"
                     @click="handleSingleSubmit(task)"
                   >
                     提交审核
@@ -235,10 +252,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
-import { useUserStore } from '@/stores/user'
 import type { Pool, VideoQueueTask, VideoQueueTag, SubmitVideoQueueReviewRequest } from '@/api/videoQueue'
 import {
   claimVideoQueueTasks,
@@ -249,10 +264,7 @@ import {
   getVideoQueueTags,
   generateVideoURL
 } from '@/api/videoQueue'
-import { Promotion, Clock, WarningFilled } from '@element-plus/icons-vue'
-
-const router = useRouter()
-const userStore = useUserStore()
+import { Promotion, Clock, WarningFilled, VideoPlay } from '@element-plus/icons-vue'
 
 // 当前队列
 const currentPool = ref<Pool>('100k')
@@ -270,6 +282,47 @@ const claimCount = ref(10)
 const returnCount = ref(1)
 const claimLoading = ref(false)
 const todayCompleted = ref(0)
+const sessionTotal = computed(() => todayCompleted.value + tasks.value.length)
+const sessionProgress = computed(() => {
+  return sessionTotal.value ? Math.round((todayCompleted.value / sessionTotal.value) * 100) : 0
+})
+const batchLoading = ref(false)
+const submitLoading = reactive<Record<number, boolean>>({})
+const batchSelection = reactive<Record<number, boolean>>({})
+const activeTaskId = ref<number | null>(null)
+const videoLoaded = reactive<Record<number, boolean>>({})
+const videoLoading = reactive<Record<number, boolean>>({})
+
+const draftStorageKey = 'video_queue_review_drafts'
+const statsStorageKey = 'video_queue_review_stats'
+
+const loadTodayStats = () => {
+  const raw = localStorage.getItem(statsStorageKey)
+  if (!raw) {
+    todayCompleted.value = 0
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    const today = new Date().toISOString().slice(0, 10)
+    if (parsed?.date !== today) {
+      todayCompleted.value = 0
+      localStorage.setItem(statsStorageKey, JSON.stringify({ date: today, completed: 0 }))
+      return
+    }
+    todayCompleted.value = parsed.completed || 0
+  } catch (error) {
+    console.error('Failed to parse stats:', error)
+    todayCompleted.value = 0
+  }
+}
+
+const incrementTodayCompleted = (count: number) => {
+  const today = new Date().toISOString().slice(0, 10)
+  todayCompleted.value += count
+  localStorage.setItem(statsStorageKey, JSON.stringify({ date: today, completed: todayCompleted.value }))
+}
 
 // 标签
 const tags = ref<VideoQueueTag[]>([])
@@ -299,13 +352,44 @@ const syncReviewDataWithTasks = (taskList: VideoQueueTask[]) => {
     if (!reviewData[task.id]) {
       reviewData[task.id] = createEmptyReviewForm(task.id)
     }
+
+    if (batchSelection[task.id] === undefined) {
+      batchSelection[task.id] = false
+    }
+
+    if (videoLoaded[task.id] === undefined) {
+      videoLoaded[task.id] = false
+    }
+
+    if (videoLoading[task.id] === undefined) {
+      videoLoading[task.id] = false
+    }
   })
+
+  Object.keys(batchSelection).forEach((key) => {
+    const id = Number(key)
+    if (!validIds.has(id)) delete batchSelection[id]
+  })
+
+  Object.keys(videoLoaded).forEach((key) => {
+    const id = Number(key)
+    if (!validIds.has(id)) delete videoLoaded[id]
+  })
+
+  Object.keys(videoLoading).forEach((key) => {
+    const id = Number(key)
+    if (!validIds.has(id)) delete videoLoading[id]
+  })
+
+  if (taskList.length > 0 && !validIds.has(activeTaskId.value || -1)) {
+    activeTaskId.value = taskList[0].id
+  }
 }
 
 // 已选择的审核
 const selectedReviews = computed(() => {
   return Object.entries(reviewData)
-    .filter(([_, review]) => review.review_decision && review.reason && review.tags.length > 0 && review.tags.length <= 3)
+    .filter(([taskId]) => batchSelection[parseInt(taskId)] && isReviewReady(parseInt(taskId)))
     .map(([taskId, review]) => ({
       task_id: parseInt(taskId),
       ...review
@@ -321,6 +405,13 @@ watch(currentPool, () => {
 onMounted(() => {
   loadTasks()
   loadTags()
+  loadTodayStats()
+  restoreDrafts()
+  window.addEventListener('keydown', handleKeyPress)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyPress)
 })
 
 // 加载任务
@@ -330,6 +421,7 @@ const loadTasks = async () => {
     const newTasks = Array.isArray(res.tasks) ? res.tasks : []
     tasks.value = newTasks
     syncReviewDataWithTasks(newTasks)
+    restoreDrafts()
   } catch (error: any) {
     tasks.value = []
     syncReviewDataWithTasks([])
@@ -403,12 +495,17 @@ const handleSingleSubmit = async (task: VideoQueueTask) => {
   }
 
   try {
+    submitLoading[task.id] = true
     await submitVideoQueueReview(currentPool.value, review)
     ElMessage.success('提交成功')
     delete reviewData[task.id]
+    batchSelection[task.id] = false
+    incrementTodayCompleted(1)
     await loadTasks()
   } catch (error: any) {
     ElMessage.error(error.response?.data?.error || '提交失败')
+  } finally {
+    submitLoading[task.id] = false
   }
 }
 
@@ -425,17 +522,22 @@ const handleBatchSubmit = async () => {
     { confirmButtonText: '确定', cancelButtonText: '取消', type: 'info' }
   ).then(async () => {
     try {
+      batchLoading.value = true
       await submitBatchVideoQueueReviews(currentPool.value, { reviews: selectedReviews.value })
       ElMessage.success(`成功提交 ${selectedReviews.value.length} 条审核`)
 
       // 清除已提交的审核数据
       selectedReviews.value.forEach(r => {
         delete reviewData[r.task_id]
+        batchSelection[r.task_id] = false
       })
 
+      incrementTodayCompleted(selectedReviews.value.length)
       await loadTasks()
     } catch (error: any) {
       ElMessage.error(error.response?.data?.error || '批量提交失败')
+    } finally {
+      batchLoading.value = false
     }
   }).catch(() => {})
 }
@@ -450,33 +552,27 @@ const loadVideo = async (task: VideoQueueTask) => {
   if (!task.video) return
 
   try {
+    videoLoading[task.id] = true
     const res = await generateVideoURL({ video_id: task.video.id })
     if (task.video) {
       task.video.video_url = res.video_url
       task.video.url_expires_at = res.expires_at
     }
+    videoLoaded[task.id] = true
   } catch (error: any) {
     ElMessage.error(error.response?.data?.error || '加载视频失败')
+  } finally {
+    videoLoading[task.id] = false
   }
 }
 
 // 视频加载错误
 const handleVideoError = (task: VideoQueueTask) => {
   ElMessage.error('视频加载失败，请刷新重试')
-}
-
-// 退出登录
-const handleLogout = () => {
-  userStore.logout()
-  router.push('/login')
+  videoLoaded[task.id] = false
 }
 
 // 辅助函数
-
-const getPoolName = (pool: Pool) => {
-  const names = { '100k': '100k流量池', '1m': '1m流量池', '10m': '10m流量池' }
-  return names[pool]
-}
 
 const getNextPoolText = (pool: Pool) => {
   const texts = {
@@ -514,8 +610,13 @@ const isReviewFormValid = (taskId: number) => {
   return form.review_decision && form.reason.trim() && form.tags.length > 0 && form.tags.length <= 3
 }
 
+const isReviewReady = (taskId: number) => {
+  return isReviewFormValid(taskId)
+}
+
 const clearReviewForm = (taskId: number) => {
   reviewData[taskId] = createEmptyReviewForm(taskId)
+  batchSelection[taskId] = false
 }
 
 const onDecisionChange = (taskId: number) => {
@@ -528,6 +629,150 @@ const onTagsChange = (taskId: number) => {
     form.tags = form.tags.slice(0, 3)
     ElMessage.warning('最多只能选择3个标签')
   }
+}
+
+const setActiveTask = (taskId: number) => {
+  activeTaskId.value = taskId
+}
+
+const scrollToTask = async (taskId: number) => {
+  await nextTick()
+  const el = document.querySelector(`[data-task-id="${taskId}"]`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+const moveActiveTask = (direction: 'next' | 'prev') => {
+  const ids = tasks.value.map(task => task.id)
+  if (ids.length === 0) return
+  const currentId = activeTaskId.value ?? ids[0]
+  const currentIndex = ids.indexOf(currentId)
+  const nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1
+  const targetId = ids[Math.min(Math.max(nextIndex, 0), ids.length - 1)]
+  activeTaskId.value = targetId
+  scrollToTask(targetId)
+}
+
+const handleKeyPress = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  const targetTag = target?.tagName?.toLowerCase()
+  const isTyping = targetTag === 'input' || targetTag === 'textarea' || target?.isContentEditable
+  if (isTyping) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault()
+      handleBatchSubmit()
+    }
+    return
+  }
+
+  if (tasks.value.length === 0) return
+  const currentId = activeTaskId.value ?? tasks.value[0]?.id
+  if (!currentId) return
+
+  switch (event.key) {
+    case '1':
+      getReviewForm(currentId).review_decision = 'push_next_pool'
+      break
+    case '2':
+      getReviewForm(currentId).review_decision = 'natural_pool'
+      break
+    case '3':
+      getReviewForm(currentId).review_decision = 'remove_violation'
+      break
+    case 'Enter':
+      event.preventDefault()
+      const task = tasks.value.find(t => t.id === currentId)
+      if (task) handleSingleSubmit(task)
+      break
+    case 'Escape':
+      event.preventDefault()
+      clearReviewForm(currentId)
+      break
+    case 'r':
+    case 'R':
+      event.preventDefault()
+      handleRefresh()
+      break
+    case 'Tab':
+      event.preventDefault()
+      moveActiveTask(event.shiftKey ? 'prev' : 'next')
+      break
+    default:
+      break
+  }
+}
+
+const restoreDrafts = () => {
+  const raw = localStorage.getItem(draftStorageKey)
+  if (!raw) return
+
+  try {
+    const saved = JSON.parse(raw)
+    const savedReviews = saved?.reviews || saved
+    const savedSelection = saved?.batchSelection || {}
+    const taskIds = new Set(tasks.value.map(t => t.id))
+
+    Object.entries(savedReviews).forEach(([taskId, review]) => {
+      const id = Number(taskId)
+      if (!taskIds.has(id)) return
+      reviewData[id] = { ...getReviewForm(id), ...(review as SubmitVideoQueueReviewRequest) }
+    })
+
+    Object.entries(savedSelection).forEach(([taskId, value]) => {
+      const id = Number(taskId)
+      if (!taskIds.has(id)) return
+      batchSelection[id] = Boolean(value)
+    })
+  } catch (error) {
+    console.error('Failed to restore drafts:', error)
+  }
+}
+
+let draftTimer: number | undefined
+
+watch(
+  reviewData,
+  () => {
+    if (draftTimer) window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      const payload = { reviews: reviewData, batchSelection }
+      localStorage.setItem(draftStorageKey, JSON.stringify(payload))
+    }, 500)
+  },
+  { deep: true }
+)
+
+watch(
+  batchSelection,
+  () => {
+    if (draftTimer) window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      const payload = { reviews: reviewData, batchSelection }
+      localStorage.setItem(draftStorageKey, JSON.stringify(payload))
+    }, 500)
+  },
+  { deep: true }
+)
+
+watch(
+  () => tasks.value.length,
+  (count) => {
+    document.title = `(${count}) 视频审核工作台`
+  },
+  { immediate: true }
+)
+
+const formatFileSize = (size: number) => {
+  if (!size && size !== 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = size
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unitIndex]}`
 }
 </script>
 
@@ -571,52 +816,39 @@ const onTagsChange = (taskId: number) => {
     padding: 24px;
     overflow-y: auto;
 
-    .stats-bar {
+    .stats-inline {
       display: flex;
-      gap: 16px;
-      margin-bottom: 24px;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
 
-      .el-card {
-        flex: 1;
+      .stat-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        background: #fff;
+        border: 1px solid #e4e7ed;
+        border-radius: 10px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 
-        .stat-item {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
+        .stat-label {
+          font-size: 13px;
+          color: #909399;
+        }
 
-          .stat-label {
-            font-size: 14px;
-            color: #909399;
-          }
-
-          .stat-value {
-            font-size: 24px;
-            font-weight: 600;
-            color: #303133;
-
-            &.pool-badge {
-              font-size: 18px;
-              padding: 4px 12px;
-              border-radius: 4px;
-
-              &.pool-100k {
-                background: #e1f3f8;
-                color: #0891b2;
-              }
-
-              &.pool-1m {
-                background: #fef3c7;
-                color: #d97706;
-              }
-
-              &.pool-10m {
-                background: #f3e8ff;
-                color: #9333ea;
-              }
-            }
-          }
+        .stat-value {
+          font-size: 18px;
+          font-weight: 600;
+          color: #303133;
         }
       }
+    }
+
+    .progress-bar {
+      margin-bottom: 20px;
+      padding: 0 6px;
     }
 
     .actions-bar {
@@ -651,6 +883,16 @@ const onTagsChange = (taskId: number) => {
           border: 2px solid #67c23a;
         }
 
+        &.is-selected {
+          border: 2px solid #409eff;
+          box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.15);
+        }
+
+        &.is-active {
+          border: 2px solid #67c23a;
+          box-shadow: 0 0 0 2px rgba(103, 194, 58, 0.15);
+        }
+
         .task-header {
           display: flex;
           align-items: center;
@@ -668,6 +910,12 @@ const onTagsChange = (taskId: number) => {
             flex: 1;
             color: #606266;
             font-size: 14px;
+          }
+
+          .task-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
           }
         }
 
@@ -690,11 +938,14 @@ const onTagsChange = (taskId: number) => {
 
           .video-placeholder {
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 200px;
             background: #f5f7fa;
             border-radius: 4px;
+            gap: 8px;
+            color: #909399;
           }
         }
 

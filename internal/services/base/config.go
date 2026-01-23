@@ -35,6 +35,11 @@ func QualityCheckTaskServiceConfig() TaskServiceConfig {
 	return DefaultTaskServiceConfig("quality_check", "qc_task")
 }
 
+// AIHumanDiffTaskServiceConfig returns AI vs human diff task configuration
+func AIHumanDiffTaskServiceConfig() TaskServiceConfig {
+	return DefaultTaskServiceConfig("ai_human_diff", "ai_diff_task")
+}
+
 // VideoFirstReviewTaskServiceConfig 返回视频一审任务的配置
 func VideoFirstReviewTaskServiceConfig() TaskServiceConfig {
 	return DefaultTaskServiceConfig("video_first_review", "video:first")

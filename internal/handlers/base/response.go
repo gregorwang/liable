@@ -4,6 +4,9 @@ package base
 
 import (
 	"net/http"
+	"strings"
+
+	"comment-review-platform/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,8 +14,12 @@ import (
 // ErrorResponse 统一错误响应结构
 // 所有 API 错误响应都应使用此格式，确保前端可以统一处理
 type ErrorResponse struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
+	Error            string `json:"error"`
+	Code             string `json:"code"`
+	ErrorType        string `json:"error_type,omitempty"`
+	ErrorDescription string `json:"error_description,omitempty"`
+	TraceID          string `json:"trace_id,omitempty"`
+	HTTPStatus       int    `json:"http_status,omitempty"`
 }
 
 // SuccessResponse 统一成功响应结构（可选使用）
@@ -24,12 +31,14 @@ type SuccessResponse struct {
 const (
 	ErrCodeInvalidRequest    = "INVALID_REQUEST"
 	ErrCodeUnauthorized      = "UNAUTHORIZED"
+	ErrCodePermissionDenied  = "PERMISSION_DENIED"
 	ErrCodeNotFound          = "NOT_FOUND"
 	ErrCodeClaimFailed       = "CLAIM_FAILED"
 	ErrCodeSubmitFailed      = "SUBMIT_FAILED"
 	ErrCodeReturnFailed      = "RETURN_FAILED"
 	ErrCodeFetchFailed       = "FETCH_FAILED"
 	ErrCodeInternalError     = "INTERNAL_ERROR"
+	ErrCodeSQLTimeout        = "SQL_TIMEOUT"
 	ErrCodeRateLimitExceeded = "RATE_LIMIT_EXCEEDED"
 )
 
@@ -38,9 +47,28 @@ const (
 // code: 错误码，用于前端识别错误类型
 // message: 错误消息，用于显示给用户
 func RespondError(c *gin.Context, status int, code string, message string) {
+	if message != "" {
+		if existing, ok := c.Get("errors"); ok {
+			if errs, ok := existing.([]string); ok {
+				c.Set("errors", append(errs, message))
+			}
+		} else {
+			c.Set("errors", []string{message})
+		}
+		c.Set("error_message", message)
+	}
+	errorType := deriveErrorType(status, code, message)
+	if message != "" || code != "" || errorType != "" {
+		middleware.SetErrorMetadata(c, code, errorType, message)
+	}
+	traceID := middleware.GetTraceID(c)
 	c.JSON(status, ErrorResponse{
-		Error: message,
-		Code:  code,
+		Error:            message,
+		Code:             code,
+		ErrorType:        errorType,
+		ErrorDescription: message,
+		TraceID:          traceID,
+		HTTPStatus:       status,
 	})
 }
 
@@ -78,4 +106,30 @@ func RespondNotFound(c *gin.Context, message string) {
 // 用于限流场景
 func RespondTooManyRequests(c *gin.Context, message string) {
 	RespondError(c, http.StatusTooManyRequests, ErrCodeRateLimitExceeded, message)
+}
+
+func deriveErrorType(status int, code, message string) string {
+	switch {
+	case code == ErrCodeInvalidRequest || status == http.StatusBadRequest:
+		return "invalid_request"
+	case code == ErrCodeUnauthorized || status == http.StatusUnauthorized:
+		return "unauthorized"
+	case code == ErrCodePermissionDenied || status == http.StatusForbidden:
+		return "permission_denied"
+	case code == ErrCodeNotFound || status == http.StatusNotFound:
+		return "not_found"
+	case code == ErrCodeRateLimitExceeded || status == http.StatusTooManyRequests:
+		return "rate_limited"
+	case code == ErrCodeSQLTimeout || hasTimeoutHint(message):
+		return "sql_timeout"
+	case status >= http.StatusInternalServerError:
+		return "internal_error"
+	default:
+		return "error"
+	}
+}
+
+func hasTimeoutHint(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out") || strings.Contains(lower, "deadline")
 }

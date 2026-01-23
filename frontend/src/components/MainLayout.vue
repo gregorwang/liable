@@ -29,7 +29,14 @@
               <span class="today-count">{{ todayVideoCount }}</span>
             </template>
           </div>
-          
+
+          <el-button class="bug-report-btn" plain @click="bugDialogVisible = true">
+            <el-icon size="18">
+              <Warning />
+            </el-icon>
+            Bug反馈
+          </el-button>
+
           <el-badge :value="notificationStore.unreadCount" :hidden="notificationStore.unreadCount === 0" class="notification-badge">
             <el-dropdown 
               trigger="click" 
@@ -78,7 +85,7 @@
           
           <el-dropdown @command="handleUserCommand" class="user-dropdown">
             <div class="user-info">
-              <el-avatar :size="32" class="user-avatar">
+              <el-avatar :size="32" class="user-avatar" :src="userStore.user?.avatar_url || undefined">
                 {{ userStore.user?.username?.charAt(0).toUpperCase() }}
               </el-avatar>
               <span class="username">{{ userStore.user?.username }}</span>
@@ -129,18 +136,6 @@
               <template #title>视频审核工作台</template>
             </el-menu-item>
 
-            <!-- 旧系统已弃用：视频一审和视频二审已迁移到流量池系统 -->
-            <!-- 
-            <el-menu-item index="video-first-review">
-              <el-icon><VideoCamera /></el-icon>
-              <template #title>视频一审</template>
-            </el-menu-item>
-
-            <el-menu-item index="video-second-review">
-              <el-icon><VideoCameraFilled /></el-icon>
-              <template #title>视频二审</template>
-            </el-menu-item>
-            -->
           </el-sub-menu>
           
           <!-- 仅管理员可见的菜单项 -->
@@ -166,6 +161,16 @@
                 <el-icon><TrendCharts /></el-icon>
                 <template #title>统计分析</template>
               </el-menu-item>
+
+              <el-menu-item index="admin-audit-logs">
+                <el-icon><Document /></el-icon>
+                <template #title>审计日志</template>
+              </el-menu-item>
+
+              <el-menu-item index="admin-monitoring">
+                <el-icon><TrendCharts /></el-icon>
+                <template #title>系统监控</template>
+              </el-menu-item>
               
               <el-menu-item index="admin-tag-management">
                 <el-icon><PriceTag /></el-icon>
@@ -186,6 +191,16 @@
                 <el-icon><Upload /></el-icon>
                 <template #title>视频导入</template>
               </el-menu-item>
+
+              <el-menu-item index="admin-ai-review">
+                <el-icon><MagicStick /></el-icon>
+                <template #title>AI审核对比</template>
+              </el-menu-item>
+
+              <el-menu-item index="admin-bug-reports">
+                <el-icon><Warning /></el-icon>
+                <template #title>Bug反馈</template>
+              </el-menu-item>
               
               <el-menu-item index="permission-management">
                 <el-icon><Key /></el-icon>
@@ -194,7 +209,7 @@
             </el-sub-menu>
           </template>
           
-          <!-- 所有用户都可以访问历史公告和规则文档 -->
+          <!-- 所有用户都可以访问历史公告、规则库与文档说明 -->
           <el-menu-item index="history-announcements">
             <el-icon><Bell /></el-icon>
             <template #title>历史公告</template>
@@ -203,6 +218,11 @@
           <el-menu-item index="rule-documentation">
             <el-icon><Document /></el-icon>
             <template #title>规则文档</template>
+          </el-menu-item>
+
+          <el-menu-item index="system-documentation">
+            <el-icon><Document /></el-icon>
+            <template #title>文档说明</template>
           </el-menu-item>
         </el-menu>
       </el-aside>
@@ -220,11 +240,13 @@
         </Suspense>
       </el-main>
     </el-container>
+
+    <BugReportDialog v-model="bugDialogVisible" />
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent, provide } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -242,11 +264,12 @@ import {
   Operation,
   Loading,
   VideoPlay,
-  VideoCamera,
-  VideoCameraFilled,
   Upload,
-  Key
+  Key,
+  MagicStick,
+  Warning
 } from '@element-plus/icons-vue'
+import BugReportDialog from './BugReportDialog.vue'
 import { useUserStore } from '../stores/user'
 import { useNotificationStore } from '../stores/notification'
 import { getTodayReviewStats } from '../api/admin'
@@ -272,31 +295,40 @@ const asyncComponents: Record<string, any> = {
   'data-management': defineAsyncComponent(() => import('../views/SearchTasks.vue')),
   'history-announcements': defineAsyncComponent(() => import('../views/HistoryAnnouncements.vue')),
   'rule-documentation': defineAsyncComponent(() => import('../views/admin/ModerationRules.vue')),
+  'system-documentation': defineAsyncComponent(() => import('../views/SystemDocumentation.vue')),
+  'profile-settings': defineAsyncComponent(() => import('../views/ProfileSettings.vue')),
   
   // 管理员专用组件
   'admin-dashboard': defineAsyncComponent(() => import('../views/admin/Dashboard.vue')),
   'admin-user-management': defineAsyncComponent(() => import('../views/admin/UserManage.vue')),
   'admin-statistics': defineAsyncComponent(() => import('../views/admin/Statistics.vue')),
+  'admin-audit-logs': defineAsyncComponent(() => import('../views/admin/AuditLogs.vue')),
+  'admin-monitoring': defineAsyncComponent(() => import('../views/admin/Monitoring.vue')),
   'admin-tag-management': defineAsyncComponent(() => import('../views/admin/TagManage.vue')),
   'admin-video-tag-management': defineAsyncComponent(() => import('../views/admin/VideoTagManage.vue')),
   'admin-queue-management': defineAsyncComponent(() => import('../views/admin/QueueManage.vue')),
   'admin-video-import': defineAsyncComponent(() => import('../views/admin/VideoImport.vue')),
+  'admin-ai-review': defineAsyncComponent(() => import('../views/admin/AIReview.vue')),
+  'admin-bug-reports': defineAsyncComponent(() => import('../views/admin/BugReports.vue')),
   'permission-management': defineAsyncComponent(() => import('../views/admin/PermissionManage.vue')),
   
   // 视频审核组件
   'video-queue-review': defineAsyncComponent(() => import('../views/reviewer/VideoQueueReviewDashboard.vue')),
-  'video-first-review': defineAsyncComponent(() => import('../views/reviewer/VideoFirstReviewDashboard.vue')),
-  'video-second-review': defineAsyncComponent(() => import('../views/reviewer/VideoSecondReviewDashboard.vue')),
 }
 
 // 侧边栏状态
 const isCollapsed = ref(false)
 const activeMenu = ref('queue-list')
 
+provide('setActiveMenu', (menu: string) => {
+  activeMenu.value = menu
+})
+
 // 统计数据
 const todayStats = ref<TodayReviewStats | null>(null)
 const statsLoading = ref(false)
 const statsError = ref(false)
+const bugDialogVisible = ref(false)
 
 // 计算属性
 const sidebarWidth = computed(() => isCollapsed.value ? '64px' : '200px')
@@ -321,7 +353,7 @@ const handleMenuSelect = (index: string) => {
 const handleUserCommand = async (command: string) => {
   switch (command) {
     case 'profile':
-      ElMessage.info('个人设置功能开发中...')
+      activeMenu.value = 'profile-settings'
       break
     case 'logout':
       try {
@@ -393,6 +425,9 @@ const loadTodayStats = async () => {
 
 onMounted(() => {
   loadTodayStats()
+  userStore.loadProfile().catch(() => {
+    // loadProfile already handles logout on failure
+  })
 
   // Initialize notification system
   notificationStore.init()
@@ -455,6 +490,21 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-6);
+}
+
+.bug-report-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: var(--color-accent-main);
+  border-color: rgba(204, 122, 77, 0.35);
+  font-family: var(--font-sans);
+}
+
+.bug-report-btn:hover {
+  color: var(--color-accent-main-hover);
+  border-color: rgba(204, 122, 77, 0.55);
+  background-color: var(--color-accent-main-lighter);
 }
 
 .stats-info {

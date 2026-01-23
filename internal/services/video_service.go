@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -250,6 +251,10 @@ func (s *VideoFirstReviewService) ClaimFirstReviewTasks(reviewerID int, count in
 	}
 	if err := s.base.TrackClaimedTasks(reviewerID, taskIDs); err != nil {
 		log.Printf("Redis error when claiming video first review tasks: %v", err)
+		if _, resetErr := s.firstReviewRepo.ReturnFirstReviewTasks(taskIDs, reviewerID); resetErr != nil {
+			log.Printf("Failed to rollback video first review tasks after Redis error: %v", resetErr)
+		}
+		return nil, errors.New("failed to claim tasks, please retry")
 	}
 
 	return tasks, nil
@@ -284,7 +289,8 @@ func (s *VideoFirstReviewService) SubmitFirstReview(reviewerID int, req models.S
 		Reason:            req.Reason,
 	}
 
-	if err := s.firstReviewRepo.CreateFirstReviewResult(result); err != nil {
+	createdResult, err := s.firstReviewRepo.CreateFirstReviewResult(result)
+	if err != nil {
 		return err
 	}
 
@@ -298,9 +304,10 @@ func (s *VideoFirstReviewService) SubmitFirstReview(reviewerID int, req models.S
 			videoID := tasks[0].VideoID
 
 			// Create second review task
-			if err := s.secondReviewRepo.CreateSecondReviewTask(result.ID, videoID); err != nil {
+			createdTask, err := s.secondReviewRepo.CreateSecondReviewTask(result.ID, videoID)
+			if err != nil {
 				log.Printf("Error creating second review task: %v", err)
-			} else {
+			} else if createdTask {
 				// Push to Redis second review queue
 				queueKey := "video:review:queue:second"
 				if s.base.Rdb != nil {
@@ -325,17 +332,23 @@ func (s *VideoFirstReviewService) SubmitFirstReview(reviewerID int, req models.S
 	s.base.CleanupSingleTask(reviewerID, req.TaskID)
 
 	// Update statistics in Redis
-	s.updateVideoStats(result)
+	if createdResult {
+		s.updateVideoStats(result)
+	}
 
 	return nil
 }
 
 // SubmitBatchFirstReviews submits multiple first reviews at once
 func (s *VideoFirstReviewService) SubmitBatchFirstReviews(reviewerID int, reviews []models.SubmitVideoFirstReviewRequest) error {
+	var failed []string
 	for _, review := range reviews {
 		if err := s.SubmitFirstReview(reviewerID, review); err != nil {
-			return err
+			failed = append(failed, fmt.Sprintf("task %d: %v", review.TaskID, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to submit %d video first reviews: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return nil
 }

@@ -52,6 +52,7 @@
               <span>总 {{ row.total_tasks }}</span>
               <span>完成 {{ row.completed_tasks }}</span>
               <span>待审 {{ row.pending_tasks }}</span>
+              <span>处理中 {{ getInProgressCount(row) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -150,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -158,6 +159,7 @@ import { listTaskQueuesPublic } from '../api/admin'
 import type { TaskQueue } from '../types'
 
 const router = useRouter()
+const setActiveMenu = inject<(menu: string) => void>('setActiveMenu')
 
 // 响应式数据
 const loading = ref(false)
@@ -170,17 +172,15 @@ const total = ref(0)
 const queueRouteMap: Record<string, string> = {
   comment_first_review: '/reviewer/dashboard',
   comment_second_review: '/reviewer/second-review',
+  ai_human_diff: '/reviewer/ai-human-diff',
   quality_check: '/reviewer/quality-check',
-  video_first_review: '/reviewer/video-first-review',
-  video_second_review: '/reviewer/video-second-review',
 }
 
 const queueDisplayNameMap: Record<string, string> = {
   comment_first_review: '评论一审队列',
   comment_second_review: '评论二审队列',
+  ai_human_diff: 'AI与人工diff队列',
   quality_check: '质量检查队列',
-  video_first_review: '视频一审队列',
-  video_second_review: '视频二审队列',
 }
 
 const normalizeQueueName = (queueName: string) => queueName?.toLowerCase() || ''
@@ -188,6 +188,11 @@ const normalizeQueueName = (queueName: string) => queueName?.toLowerCase() || ''
 const calculateProgress = (row: TaskQueue) => {
   if (row.total_tasks === 0) return 0
   return Math.round((row.completed_tasks / row.total_tasks) * 100)
+}
+
+const getInProgressCount = (row: TaskQueue) => {
+  const inProgress = row.total_tasks - row.completed_tasks - row.pending_tasks
+  return inProgress > 0 ? inProgress : 0
 }
 
 const getProgressColor = (percentage: number) => {
@@ -279,6 +284,11 @@ const handleAnnotate = (row: TaskQueue) => {
 }
 
 const handleViewDetails = (row: TaskQueue) => {
+  sessionStorage.setItem('queueSearchQueue', row.queue_name)
+  if (setActiveMenu) {
+    setActiveMenu('data-management')
+    return
+  }
   ElMessage.info(`队列: ${row.queue_name} - 优先级: ${row.priority}`)
 }
 

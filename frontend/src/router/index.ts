@@ -75,9 +75,24 @@ const router = createRouter({
           component: () => import('../views/admin/ModerationRules.vue'),
         },
         {
+          path: 'system-documentation',
+          name: 'SystemDocumentation',
+          component: () => import('../views/SystemDocumentation.vue'),
+        },
+        {
           path: 'permission-management',
           name: 'PermissionManagement',
           component: () => import('../views/admin/PermissionManage.vue'),
+        },
+        {
+          path: 'monitoring',
+          name: 'Monitoring',
+          component: () => import('../views/admin/Monitoring.vue'),
+        },
+        {
+          path: 'bug-reports',
+          name: 'BugReports',
+          component: () => import('../views/admin/BugReports.vue'),
         },
       ],
     },
@@ -106,21 +121,15 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
+      path: '/reviewer/ai-human-diff',
+      name: 'AIHumanDiffDashboard',
+      component: () => import('../views/reviewer/AIHumanDiffDashboard.vue'),
+      meta: { requiresAuth: true, role: 'reviewer' },
+    },
+    {
       path: '/reviewer/quality-check',
       name: 'QualityCheckDashboard',
       component: () => import('../views/reviewer/QualityCheckDashboard.vue'),
-      meta: { requiresAuth: true, role: 'reviewer' },
-    },
-    {
-      path: '/reviewer/video-first-review',
-      name: 'VideoFirstReviewDashboard',
-      component: () => import('../views/reviewer/VideoFirstReviewDashboard.vue'),
-      meta: { requiresAuth: true, role: 'reviewer' },
-    },
-    {
-      path: '/reviewer/video-second-review',
-      name: 'VideoSecondReviewDashboard',
-      component: () => import('../views/reviewer/VideoSecondReviewDashboard.vue'),
       meta: { requiresAuth: true, role: 'reviewer' },
     },
     {
@@ -153,6 +162,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' },
     },
     {
+      path: '/admin/monitoring',
+      name: 'AdminMonitoring',
+      component: () => import('../views/admin/Monitoring.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
       path: '/admin/tags',
       name: 'TagManage',
       component: () => import('../views/admin/TagManage.vue'),
@@ -177,6 +192,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' },
     },
     {
+      path: '/admin/ai-review',
+      name: 'AIReview',
+      component: () => import('../views/admin/AIReview.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
       path: '/admin/queue-manage',
       name: 'QueueManage',
       component: () => import('../views/admin/QueueManage.vue'),
@@ -186,6 +207,12 @@ const router = createRouter({
       path: '/admin/permissions',
       name: 'PermissionManage',
       component: () => import('../views/admin/PermissionManage.vue'),
+      meta: { requiresAuth: true, role: 'admin' },
+    },
+    {
+      path: '/admin/bug-reports',
+      name: 'AdminBugReports',
+      component: () => import('../views/admin/BugReports.vue'),
       meta: { requiresAuth: true, role: 'admin' },
     },
   ],

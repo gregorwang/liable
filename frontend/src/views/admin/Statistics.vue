@@ -371,6 +371,7 @@ const getQueueDisplayName = (queueName: string): string => {
   const nameMap: Record<string, string> = {
     'comment_first_review': '评论一审',
     'comment_second_review': '评论二审',
+    'ai_human_diff': 'AI与人工差异',
     'quality_check': '质量检查',
     '100k': '100k流量池',
     '1m': '1m流量池',

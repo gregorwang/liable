@@ -1,48 +1,48 @@
 package services
 
 import (
-    "fmt"
-    "comment-review-platform/internal/config"
+	"comment-review-platform/internal/config"
+	"fmt"
 
-    resend "github.com/resend/resend-go/v2"
+	resend "github.com/resend/resend-go/v2"
 )
 
 type EmailService struct {
-    client    *resend.Client
-    fromEmail string
+	client    *resend.Client
+	fromEmail string
 }
 
 func NewEmailService() *EmailService {
-    apiKey := config.AppConfig.ResendAPIKey
-    if apiKey == "" {
-        panic("RESEND_API_KEY is not set")
-    }
+	apiKey := config.AppConfig.ResendAPIKey
+	if apiKey == "" {
+		panic("RESEND_API_KEY is not set")
+	}
 
-    client := resend.NewClient(apiKey)
-    fromEmail := config.AppConfig.ResendFromEmail
-    if fromEmail == "" {
-        fromEmail = "noreply@wangjiajun.asia"
-    }
+	client := resend.NewClient(apiKey)
+	fromEmail := config.AppConfig.ResendFromEmail
+	if fromEmail == "" {
+		fromEmail = "noreply@wangjiajun.asia"
+	}
 
-    return &EmailService{
-        client:    client,
-        fromEmail: fromEmail,
-    }
+	return &EmailService{
+		client:    client,
+		fromEmail: fromEmail,
+	}
 }
 
 // SendVerificationCode sends a verification code email
 func (s *EmailService) SendVerificationCode(email, code, purpose string) error {
-    var subject string
-    switch purpose {
-    case "login":
-        subject = "登录验证码"
-    case "register":
-        subject = "注册验证码"
-    default:
-        subject = "验证码"
-    }
+	var subject string
+	switch purpose {
+	case "login":
+		subject = "登录验证码"
+	case "register":
+		subject = "注册验证码"
+	default:
+		subject = "验证码"
+	}
 
-    htmlContent := fmt.Sprintf(`
+	htmlContent := fmt.Sprintf(`
     <!DOCTYPE html>
     <html>
     <head>
@@ -71,15 +71,30 @@ func (s *EmailService) SendVerificationCode(email, code, purpose string) error {
     </html>
     `, subject, code)
 
-    params := &resend.SendEmailRequest{
-        From:    s.fromEmail,
-        To:      []string{email},
-        Subject: subject,
-        Html:    htmlContent,
-    }
+	params := &resend.SendEmailRequest{
+		From:    s.fromEmail,
+		To:      []string{email},
+		Subject: subject,
+		Html:    htmlContent,
+	}
 
-    _, err := s.client.Emails.Send(params)
-    return err
+	_, err := s.client.Emails.Send(params)
+	return err
 }
 
+// SendErrorEmail sends an alert email with a custom HTML body.
+func (s *EmailService) SendErrorEmail(recipients []string, subject, htmlContent string) error {
+	if len(recipients) == 0 {
+		return nil
+	}
 
+	params := &resend.SendEmailRequest{
+		From:    s.fromEmail,
+		To:      recipients,
+		Subject: subject,
+		Html:    htmlContent,
+	}
+
+	_, err := s.client.Emails.Send(params)
+	return err
+}

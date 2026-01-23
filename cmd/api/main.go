@@ -36,6 +36,12 @@ func main() {
 	// Initialize audit logger (requires DB connection)
 	middleware.InitAuditLogger(db)
 
+	// Initialize alerting and metrics services
+	alertService := services.NewAlertService(redispkg.Client)
+	middleware.InitAlertService(alertService)
+	metricsService := services.NewMetricsService(redispkg.Client, cfg.MetricsWindowMinutes)
+	middleware.InitMetricsService(metricsService)
+
 	// Create database tables if they don't exist
 	if err := createTables(db); err != nil {
 		log.Fatalf("❌ Failed to create tables: %v", err)
@@ -55,8 +61,11 @@ func main() {
 	// Start daily statistics aggregation scheduler
 	go startDailyStatsAggregator()
 
+	// Start AI review scheduler
+	go startAIReviewScheduler()
+
 	// Setup Gin router
-	router := setupRouter(db)
+	router := setupRouter(db, metricsService)
 
 	// Start audit log cleanup (retention: 90 days, runs daily)
 	go middleware.StartAuditLogCleanup(90, 24*time.Hour)
@@ -68,21 +77,27 @@ func main() {
 	}
 }
 
-func setupRouter(db interface{}) *gin.Engine {
-	router := gin.Default()
+func setupRouter(db interface{}, metricsService *services.MetricsService) *gin.Engine {
+	router := gin.New()
 
 	// Global middleware (executed in order)
-	// 1. Global rate limiting (first line of defense - 100 req/sec per IP)
+	router.Use(gin.Logger())
+	router.Use(middleware.RecoveryMiddleware())
+	router.Use(middleware.TraceMiddleware())
+
+	// Global rate limiting (first line of defense - 100 req/sec per IP)
 	router.Use(middleware.GlobalRateLimiterV2())
 
-	// 2. Audit logging (async, non-blocking)
+	// Metrics & audit logging (async, non-blocking)
+	router.Use(middleware.MetricsMiddleware())
 	router.Use(middleware.AuditLogMiddleware())
 
 	// 3. CORS middleware
 	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Trace-Id, X-Page-Url")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "X-Trace-Id, X-Request-Id")
 
 		// SSE specific headers
 		if c.Request.URL.Path == "/api/notifications/stream" {
@@ -98,17 +113,27 @@ func setupRouter(db interface{}) *gin.Engine {
 		c.Next()
 	})
 
+	// Type assert database connection
+	sqlDB, ok := db.(*sql.DB)
+	if !ok {
+		panic("failed to assert database connection to *sql.DB")
+	}
+
 	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "healthy"})
-	})
+	monitoringHandler := handlers.NewMonitoringHandler(sqlDB, redispkg.Client, metricsService)
+	router.GET("/health", monitoringHandler.Health)
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler()
 	taskHandler := handlers.NewTaskHandler()
 	secondReviewHandler := handlers.NewSecondReviewHandler()
 	qualityCheckHandler := handlers.NewQualityCheckHandler()
+	aiHumanDiffHandler := handlers.NewAIHumanDiffHandler()
 	adminHandler := handlers.NewAdminHandler()
+	aiReviewHandler := handlers.NewAIReviewHandler()
+	auditLogHandler := handlers.NewAuditLogHandler()
+	documentHandler := handlers.NewDocumentHandler()
+	bugReportHandler := handlers.NewBugReportHandler()
 
 	// Initialize video handler
 	videoHandler, err := handlers.NewVideoHandler()
@@ -121,11 +146,6 @@ func setupRouter(db interface{}) *gin.Engine {
 	// Initialize video queue handler
 	videoQueueHandler := handlers.NewVideoQueueHandler()
 
-	// Type assert database connection
-	sqlDB, ok := db.(*sql.DB)
-	if !ok {
-		panic("failed to assert database connection to *sql.DB")
-	}
 	moderationRulesHandler := handlers.NewModerationRulesHandler(sqlDB)
 
 	// Initialize SSE manager and notification service
@@ -152,6 +172,9 @@ func setupRouter(db interface{}) *gin.Engine {
 			// Rate limit: 10 per minute for email checking
 			auth.GET("/check-email", middleware.EndpointRateLimiterV2(10, 1*time.Minute), authHandler.CheckEmail)
 			auth.GET("/profile", middleware.AuthMiddleware(), authHandler.GetProfile)
+			auth.PUT("/profile", middleware.AuthMiddleware(), authHandler.UpdateProfile)
+			auth.PUT("/profile/system", middleware.AuthMiddleware(), middleware.RequirePermission("users:profile:update"), authHandler.UpdateSystemProfile)
+			auth.POST("/profile/avatar", middleware.AuthMiddleware(), authHandler.UploadAvatar)
 		}
 
 		// Moderation Rules routes (public - for viewing rules)
@@ -167,43 +190,56 @@ func setupRouter(db interface{}) *gin.Engine {
 		// Shared statistics routes (accessible to authenticated users)
 		api.GET("/stats/today", middleware.AuthMiddleware(), adminHandler.GetTodayReviewStats)
 
+		// System documents (requires authentication)
+		api.GET("/docs", middleware.AuthMiddleware(), documentHandler.ListDocuments)
+
+		// Bug report submission (requires authentication)
+		api.POST("/bug-reports", middleware.AuthMiddleware(), bugReportHandler.Create)
+
 		// Task routes (requires specific queue permissions)
 		tasks := api.Group("/tasks")
 		tasks.Use(middleware.AuthMiddleware())
 		{
 			// First review (comment review) routes
-			tasks.POST("/claim", middleware.RequirePermission("tasks:first-review:claim"), taskHandler.ClaimTasks)
+			tasks.POST("/claim", middleware.UserRateLimiterV2(10, time.Minute), middleware.RequirePermission("tasks:first-review:claim"), taskHandler.ClaimTasks)
 			tasks.GET("/my", middleware.RequireAnyPermission("tasks:first-review:claim", "tasks:second-review:claim", "tasks:quality-check:claim", "tasks:video-first-review:claim", "tasks:video-second-review:claim"), taskHandler.GetMyTasks)
 			tasks.POST("/submit", middleware.RequirePermission("tasks:first-review:submit"), taskHandler.SubmitReview)
 			tasks.POST("/submit-batch", middleware.RequirePermission("tasks:first-review:submit"), taskHandler.SubmitBatchReviews)
 			tasks.POST("/return", middleware.RequirePermission("tasks:first-review:return"), taskHandler.ReturnTasks)
 
 			// Second review routes
-			tasks.POST("/second-review/claim", middleware.RequirePermission("tasks:second-review:claim"), secondReviewHandler.ClaimSecondReviewTasks)
+			tasks.POST("/second-review/claim", middleware.UserRateLimiterV2(10, time.Minute), middleware.RequirePermission("tasks:second-review:claim"), secondReviewHandler.ClaimSecondReviewTasks)
 			tasks.GET("/second-review/my", middleware.RequirePermission("tasks:second-review:claim"), secondReviewHandler.GetMySecondReviewTasks)
 			tasks.POST("/second-review/submit", middleware.RequirePermission("tasks:second-review:submit"), secondReviewHandler.SubmitSecondReview)
 			tasks.POST("/second-review/submit-batch", middleware.RequirePermission("tasks:second-review:submit"), secondReviewHandler.SubmitBatchSecondReviews)
 			tasks.POST("/second-review/return", middleware.RequirePermission("tasks:second-review:return"), secondReviewHandler.ReturnSecondReviewTasks)
 
 			// Quality check routes
-			tasks.POST("/quality-check/claim", middleware.RequirePermission("tasks:quality-check:claim"), qualityCheckHandler.ClaimQCTasks)
+			tasks.POST("/quality-check/claim", middleware.UserRateLimiterV2(10, time.Minute), middleware.RequirePermission("tasks:quality-check:claim"), qualityCheckHandler.ClaimQCTasks)
 			tasks.GET("/quality-check/my", middleware.RequirePermission("tasks:quality-check:claim"), qualityCheckHandler.GetMyQCTasks)
 			tasks.POST("/quality-check/submit", middleware.RequirePermission("tasks:quality-check:submit"), qualityCheckHandler.SubmitQCReview)
 			tasks.POST("/quality-check/submit-batch", middleware.RequirePermission("tasks:quality-check:submit"), qualityCheckHandler.SubmitBatchQCReviews)
 			tasks.POST("/quality-check/return", middleware.RequirePermission("tasks:quality-check:return"), qualityCheckHandler.ReturnQCTasks)
 			tasks.GET("/quality-check/stats", middleware.RequirePermission("tasks:quality-check:stats"), qualityCheckHandler.GetQCStats)
 
+			// AI vs human diff routes
+			tasks.POST("/ai-human-diff/claim", middleware.UserRateLimiterV2(10, time.Minute), middleware.RequirePermission("tasks:ai-human-diff:claim"), aiHumanDiffHandler.ClaimDiffTasks)
+			tasks.GET("/ai-human-diff/my", middleware.RequirePermission("tasks:ai-human-diff:claim"), aiHumanDiffHandler.GetMyDiffTasks)
+			tasks.POST("/ai-human-diff/submit", middleware.RequirePermission("tasks:ai-human-diff:submit"), aiHumanDiffHandler.SubmitDiffReview)
+			tasks.POST("/ai-human-diff/submit-batch", middleware.RequirePermission("tasks:ai-human-diff:submit"), aiHumanDiffHandler.SubmitBatchDiffReviews)
+			tasks.POST("/ai-human-diff/return", middleware.RequirePermission("tasks:ai-human-diff:return"), aiHumanDiffHandler.ReturnDiffTasks)
+
 			// Video review routes (if video handler is available)
 			if videoHandler != nil {
 				// Video first review routes
-				tasks.POST("/video-first-review/claim", middleware.RequirePermission("tasks:video-first-review:claim"), videoHandler.ClaimVideoFirstReviewTasks)
+				tasks.POST("/video-first-review/claim", middleware.UserRateLimiterV2(10, time.Minute), middleware.RequirePermission("tasks:video-first-review:claim"), videoHandler.ClaimVideoFirstReviewTasks)
 				tasks.GET("/video-first-review/my", middleware.RequirePermission("tasks:video-first-review:claim"), videoHandler.GetMyVideoFirstReviewTasks)
 				tasks.POST("/video-first-review/submit", middleware.RequirePermission("tasks:video-first-review:submit"), videoHandler.SubmitVideoFirstReview)
 				tasks.POST("/video-first-review/submit-batch", middleware.RequirePermission("tasks:video-first-review:submit"), videoHandler.SubmitBatchVideoFirstReviews)
 				tasks.POST("/video-first-review/return", middleware.RequirePermission("tasks:video-first-review:return"), videoHandler.ReturnVideoFirstReviewTasks)
 
 				// Video second review routes
-				tasks.POST("/video-second-review/claim", middleware.RequirePermission("tasks:video-second-review:claim"), videoHandler.ClaimVideoSecondReviewTasks)
+				tasks.POST("/video-second-review/claim", middleware.UserRateLimiterV2(10, time.Minute), middleware.RequirePermission("tasks:video-second-review:claim"), videoHandler.ClaimVideoSecondReviewTasks)
 				tasks.GET("/video-second-review/my", middleware.RequirePermission("tasks:video-second-review:claim"), videoHandler.GetMyVideoSecondReviewTasks)
 				tasks.POST("/video-second-review/submit", middleware.RequirePermission("tasks:video-second-review:submit"), videoHandler.SubmitVideoSecondReview)
 				tasks.POST("/video-second-review/submit-batch", middleware.RequirePermission("tasks:video-second-review:submit"), videoHandler.SubmitBatchVideoSecondReviews)
@@ -216,7 +252,7 @@ func setupRouter(db interface{}) *gin.Engine {
 		video.Use(middleware.AuthMiddleware())
 		{
 			// Routes for each pool: 100k, 1m, 10m
-			video.POST("/:pool/tasks/claim", func(c *gin.Context) {
+			video.POST("/:pool/tasks/claim", middleware.UserRateLimiterV2(10, time.Minute), func(c *gin.Context) {
 				pool := c.Param("pool")
 				middleware.RequirePermission("queue.video." + pool + ".claim")(c)
 				if c.IsAborted() {
@@ -269,7 +305,7 @@ func setupRouter(db interface{}) *gin.Engine {
 		api.GET("/tasks/search", middleware.AuthMiddleware(), middleware.RequirePermission("tasks:search"), taskHandler.SearchTasks)
 
 		// Tag routes (public for reviewers - requires any task permission)
-		api.GET("/tags", middleware.AuthMiddleware(), middleware.RequireAnyPermission("tasks:first-review:claim", "tasks:second-review:claim", "tasks:quality-check:claim", "tasks:video-first-review:claim", "tasks:video-second-review:claim"), taskHandler.GetActiveTags)
+		api.GET("/tags", middleware.AuthMiddleware(), middleware.RequireAnyPermission("tasks:first-review:claim", "tasks:second-review:claim", "tasks:quality-check:claim", "tasks:ai-human-diff:claim", "tasks:video-first-review:claim", "tasks:video-second-review:claim"), taskHandler.GetActiveTags)
 
 		// Video quality tags route (if video handler is available)
 		if videoHandler != nil {
@@ -314,6 +350,8 @@ func setupRouter(db interface{}) *gin.Engine {
 			admin.GET("/users", middleware.RequirePermission("users:list"), adminHandler.GetPendingUsers)
 			admin.GET("/users/all", middleware.RequirePermission("users:list"), adminHandler.GetAllUsers)
 			admin.PUT("/users/:id/approve", middleware.RequirePermission("users:approve"), adminHandler.ApproveUser)
+			admin.POST("/users", middleware.RequirePermission("users:approve"), adminHandler.CreateUser)
+			admin.DELETE("/users/:id", middleware.RequirePermission("users:approve"), adminHandler.DeleteUser)
 
 			// Statistics
 			admin.GET("/stats/overview", middleware.RequirePermission("stats:overview"), adminHandler.GetOverviewStats)
@@ -321,6 +359,9 @@ func setupRouter(db interface{}) *gin.Engine {
 			admin.GET("/stats/hourly", middleware.RequirePermission("stats:hourly"), adminHandler.GetHourlyStats)
 			admin.GET("/stats/tags", middleware.RequirePermission("stats:tags"), adminHandler.GetTagStats)
 			admin.GET("/stats/reviewers", middleware.RequirePermission("stats:reviewers"), adminHandler.GetReviewerPerformance)
+			admin.GET("/monitoring/metrics", middleware.RequirePermission("monitoring.read"), monitoringHandler.Metrics)
+			admin.GET("/monitoring/summary", middleware.RequirePermission("monitoring.read"), monitoringHandler.DailySummary)
+			admin.GET("/monitoring/endpoints", middleware.RequirePermission("monitoring.read"), monitoringHandler.DailyEndpointHealth)
 
 			// Tag management (comment tags)
 			admin.GET("/tags", middleware.RequirePermission("tags:list"), adminHandler.GetAllTags)
@@ -361,6 +402,30 @@ func setupRouter(db interface{}) *gin.Engine {
 
 			// Video Queue Pool statistics (admin only)
 			admin.GET("/video-queue/:pool/stats", middleware.RequirePermission("stats:overview"), videoQueueHandler.GetPoolStats)
+
+			// AI review management
+			admin.POST("/ai-review/jobs", middleware.RequirePermission("ai-review:jobs:create"), aiReviewHandler.CreateJob)
+			admin.POST("/ai-review/jobs/:id/start", middleware.RequirePermission("ai-review:jobs:start"), aiReviewHandler.StartJob)
+			admin.POST("/ai-review/jobs/:id/archive", middleware.RequirePermission("ai-review:jobs:archive"), aiReviewHandler.ArchiveJob)
+			admin.POST("/ai-review/jobs/:id/unarchive", middleware.RequirePermission("ai-review:jobs:archive"), aiReviewHandler.UnarchiveJob)
+			admin.GET("/ai-review/jobs", middleware.RequirePermission("ai-review:jobs:list"), aiReviewHandler.ListJobs)
+			admin.GET("/ai-review/jobs/:id", middleware.RequirePermission("ai-review:jobs:read"), aiReviewHandler.GetJob)
+			admin.GET("/ai-review/jobs/:id/tasks", middleware.RequirePermission("ai-review:jobs:read"), aiReviewHandler.ListJobTasks)
+			admin.DELETE("/ai-review/jobs/:id/tasks", middleware.RequirePermission("ai-review:tasks:delete"), aiReviewHandler.DeleteJobTasks)
+			admin.GET("/ai-review/compare", middleware.RequirePermission("ai-review:compare"), aiReviewHandler.GetComparison)
+
+			// System documents (edit)
+			admin.PUT("/docs/:key", middleware.RequirePermission("docs:edit"), documentHandler.UpdateDocument)
+
+			// Audit log management
+			admin.GET("/audit-logs", middleware.RequirePermission("audit.logs.read"), auditLogHandler.ListLogs)
+			admin.GET("/audit-logs/:id", middleware.RequirePermission("audit.logs.read"), auditLogHandler.GetLog)
+			admin.POST("/audit-logs/export", middleware.RequirePermission("audit.logs.export"), auditLogHandler.ExportLogs)
+			admin.GET("/audit-logs/exports", middleware.RequirePermission("audit.logs.read"), auditLogHandler.ListExports)
+
+			// Bug reports (admin only)
+			admin.GET("/bug-reports", bugReportHandler.List)
+			admin.POST("/bug-reports/export", bugReportHandler.Export)
 		}
 	}
 
@@ -389,6 +454,7 @@ func startTaskReleaseWorker() {
 	taskService := services.NewTaskService()
 	secondReviewService := services.NewSecondReviewService()
 	qcCService := services.NewQualityCheckService()
+	aiHumanDiffService := services.NewAIHumanDiffService()
 	videoFirstReviewService := services.NewVideoFirstReviewService()
 	videoSecondReviewService := services.NewVideoSecondReviewService()
 	videoQueueService := services.NewVideoQueueService()
@@ -406,6 +472,9 @@ func startTaskReleaseWorker() {
 		}
 		if err := qcCService.ReleaseExpiredQCTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired QC tasks: %v", err)
+		}
+		if err := aiHumanDiffService.ReleaseExpiredDiffTasks(); err != nil {
+			log.Printf("⚠️ Error releasing expired AI diff tasks: %v", err)
 		}
 		if err := videoFirstReviewService.ReleaseExpiredFirstReviewTasks(); err != nil {
 			log.Printf("⚠️ Error releasing expired video first review tasks: %v", err)
@@ -438,6 +507,20 @@ func startDailyStatsAggregator() {
 	for range ticker.C {
 		if err := scheduledTasksService.RunDailyAggregation(); err != nil {
 			log.Printf("⚠️ Error in daily stats aggregation: %v", err)
+		}
+	}
+}
+
+func startAIReviewScheduler() {
+	aiReviewService := services.NewAIReviewService()
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("✅ AI review scheduler started (runs every minute)")
+
+	for range ticker.C {
+		if err := aiReviewService.RunScheduledJobs(); err != nil {
+			log.Printf("⚠️ Error in AI review scheduler: %v", err)
 		}
 	}
 }

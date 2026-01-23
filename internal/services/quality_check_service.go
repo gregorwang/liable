@@ -6,7 +6,9 @@ import (
 	"comment-review-platform/internal/services/base"
 	redispkg "comment-review-platform/pkg/redis"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 )
 
 type QualityCheckService struct {
@@ -55,6 +57,10 @@ func (s *QualityCheckService) ClaimQCTasks(reviewerID int, count int) ([]models.
 	}
 	if err := s.base.TrackClaimedTasks(reviewerID, taskIDs); err != nil {
 		log.Printf("Redis error when claiming QC tasks: %v", err)
+		if _, resetErr := s.qcRepo.ReturnQCTasks(taskIDs, reviewerID); resetErr != nil {
+			log.Printf("Failed to rollback QC tasks after Redis error: %v", resetErr)
+		}
+		return nil, errors.New("failed to claim tasks, please retry")
 	}
 
 	return tasks, nil
@@ -81,7 +87,7 @@ func (s *QualityCheckService) SubmitQCReview(reviewerID int, req models.SubmitQC
 		QCComment:  req.QCComment,
 	}
 
-	if err := s.qcRepo.CreateQCResult(result); err != nil {
+	if _, err := s.qcRepo.CreateQCResult(result); err != nil {
 		return err
 	}
 
@@ -93,10 +99,14 @@ func (s *QualityCheckService) SubmitQCReview(reviewerID int, req models.SubmitQC
 
 // SubmitBatchQCReviews submits multiple quality check reviews at once
 func (s *QualityCheckService) SubmitBatchQCReviews(reviewerID int, reviews []models.SubmitQCRequest) error {
+	var failed []string
 	for _, review := range reviews {
 		if err := s.SubmitQCReview(reviewerID, review); err != nil {
-			return err
+			failed = append(failed, fmt.Sprintf("task %d: %v", review.TaskID, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to submit %d QC reviews: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return nil
 }

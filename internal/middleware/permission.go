@@ -3,6 +3,7 @@ package middleware
 import (
 	"comment-review-platform/internal/services"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,7 @@ func getPermissionService() *services.PermissionService {
 // RequirePermission checks if user has the specified permission
 func RequirePermission(permissionKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		SetCheckedPermission(c, permissionKey)
 		userID := GetUserID(c)
 		if userID == 0 {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
@@ -54,6 +56,7 @@ func RequirePermission(permissionKey string) gin.HandlerFunc {
 // RequireAnyPermission checks if user has any of the specified permissions
 func RequireAnyPermission(permissionKeys ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		SetCheckedPermission(c, strings.Join(permissionKeys, ","))
 		userID := GetUserID(c)
 		if userID == 0 {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})

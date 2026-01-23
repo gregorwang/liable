@@ -109,6 +109,7 @@ func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) (
 	}{
 		{"comment_first_review", "评论一审队列", 100, "review_tasks"},
 		{"comment_second_review", "评论二审队列", 90, "second_review_tasks"},
+		{"ai_human_diff", "AI与人工diff队列", 85, "ai_human_diff_tasks"},
 		{"quality_check", "质量检查队列", 80, "quality_check_tasks"},
 		{"video_first_review", "视频一审队列", 70, "video_first_review_tasks"},
 		{"video_second_review", "视频二审队列", 60, "video_second_review_tasks"},
@@ -148,12 +149,95 @@ func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) (
 	pagedQueues := filteredQueues[offset:end]
 	log.Printf("📊 Processing %d queues after pagination", len(pagedQueues))
 
+	statsQuery := `
+		SELECT queue_name, total, completed, pending
+		FROM (
+			SELECT
+				'comment_first_review' AS queue_name,
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			FROM review_tasks
+			UNION ALL
+			SELECT
+				'comment_second_review' AS queue_name,
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			FROM second_review_tasks
+			UNION ALL
+			SELECT
+				'ai_human_diff' AS queue_name,
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			FROM ai_human_diff_tasks
+			UNION ALL
+			SELECT
+				'quality_check' AS queue_name,
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			FROM quality_check_tasks
+			UNION ALL
+			SELECT
+				'video_first_review' AS queue_name,
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			FROM video_first_review_tasks
+			UNION ALL
+			SELECT
+				'video_second_review' AS queue_name,
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending
+			FROM video_second_review_tasks
+		) stats
+	`
+	statsByQueue := make(map[string]struct {
+		total     int
+		completed int
+		pending   int
+	})
+	statsStart := time.Now()
+	rows, err := r.db.Query(statsQuery)
+	if err != nil {
+		log.Printf("⚠️ Queue stats query error: %v", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				queueName string
+				total     int
+				completed int
+				pending   int
+			)
+			if err := rows.Scan(&queueName, &total, &completed, &pending); err != nil {
+				log.Printf("⚠️ Queue stats scan error: %v", err)
+				continue
+			}
+			statsByQueue[queueName] = struct {
+				total     int
+				completed int
+				pending   int
+			}{
+				total:     total,
+				completed: completed,
+				pending:   pending,
+			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("⚠️ Queue stats rows error: %v", err)
+		}
+	}
+	log.Printf("📊 Queue stats query took %v", time.Since(statsStart))
+
 	// 构建结果，快速获取每个队列的统计数据
 	queues := make([]models.TaskQueue, 0, len(pagedQueues))
 	now := time.Now()
 
 	for i, q := range pagedQueues {
-		queryStart := time.Now()
 		queue := models.TaskQueue{
 			ID:          i + 1 + offset,
 			QueueName:   q.QueueName,
@@ -164,26 +248,11 @@ func (r *TaskQueueRepository) ListTaskQueues(req models.ListTaskQueuesRequest) (
 			UpdatedAt:   now,
 		}
 
-		// 快速获取每个队列的统计数据（单表查询，有索引，很快）
-		statsQuery := fmt.Sprintf(`
-			SELECT 
-				COUNT(*) as total,
-				COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-				COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending
-			FROM %s
-		`, q.TableName)
-
-		var totalTasks, completedTasks, pendingTasks int
-		err := r.db.QueryRow(statsQuery).Scan(&totalTasks, &completedTasks, &pendingTasks)
-		if err != nil {
-			log.Printf("⚠️ Query error for %s: %v", q.TableName, err)
-			totalTasks, completedTasks, pendingTasks = 0, 0, 0
+		if stats, ok := statsByQueue[q.QueueName]; ok {
+			queue.TotalTasks = stats.total
+			queue.CompletedTasks = stats.completed
+			queue.PendingTasks = stats.pending
 		}
-		log.Printf("📊 Query %s took %v", q.TableName, time.Since(queryStart))
-
-		queue.TotalTasks = totalTasks
-		queue.CompletedTasks = completedTasks
-		queue.PendingTasks = pendingTasks
 
 		queues = append(queues, queue)
 	}

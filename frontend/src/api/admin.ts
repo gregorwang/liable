@@ -35,6 +35,26 @@ export function approveUser(userId: number, status: 'approved' | 'rejected') {
 }
 
 /**
+ * Create user
+ */
+export function createUser(payload: {
+  username: string
+  email?: string
+  password?: string
+  role?: 'admin' | 'reviewer'
+  status?: 'pending' | 'approved' | 'rejected'
+}) {
+  return request.post<any, { user: User }>('/admin/users', payload)
+}
+
+/**
+ * Delete user
+ */
+export function deleteUser(userId: number) {
+  return request.delete<any, { message: string }>(`/admin/users/${userId}`)
+}
+
+/**
  * Get overview statistics
  */
 export function getOverviewStats() {
@@ -188,4 +208,3 @@ export async function getTaskQueuePublic(id: number): Promise<TaskQueue> {
   const response = await request.get(`/queues/${id}`)
   return response as unknown as TaskQueue
 }
-

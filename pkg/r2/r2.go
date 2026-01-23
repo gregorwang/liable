@@ -1,6 +1,7 @@
 package r2
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -172,6 +173,28 @@ func (r *R2Service) CheckConnection() error {
 	}
 
 	log.Printf("✅ R2 connection successful, bucket: %s", r.bucket)
+	return nil
+}
+
+// UploadObject uploads data to R2 at the given key
+func (r *R2Service) UploadObject(key string, data []byte, contentType string) error {
+	if r == nil {
+		return fmt.Errorf("R2 service not initialized")
+	}
+
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(r.bucket),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader(data),
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+
+	_, err := r.client.PutObject(context.TODO(), input)
+	if err != nil {
+		return fmt.Errorf("failed to upload object: %w", err)
+	}
 	return nil
 }
 

@@ -53,14 +53,21 @@ func scanVideoQueueTaskWithVideo(rows *sql.Rows) (models.VideoQueueTask, error) 
 }
 
 // CreateQueueTask creates a new video queue task for a specific pool
-func (r *VideoQueueRepository) CreateQueueTask(videoID int, pool string) error {
+func (r *VideoQueueRepository) CreateQueueTask(videoID int, pool string) (bool, error) {
 	query := `
 		INSERT INTO video_queue_tasks (video_id, pool, status)
 		VALUES ($1, $2, 'pending')
 		ON CONFLICT (video_id, pool) DO NOTHING
 	`
-	_, err := r.db.Exec(query, videoID, pool)
-	return err
+	result, err := r.db.Exec(query, videoID, pool)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rowsAffected > 0, nil
 }
 
 // ClaimQueueTasks claims pending tasks from a specific pool for a reviewer
@@ -174,8 +181,8 @@ func (r *VideoQueueRepository) CountMyQueueTasks(pool string, reviewerID int) (i
 func (r *VideoQueueRepository) CompleteQueueTask(taskID int, reviewerID int) error {
 	query := `
 		UPDATE video_queue_tasks
-		SET status = 'completed', completed_at = NOW()
-		WHERE id = $1 AND reviewer_id = $2 AND status = 'in_progress'
+		SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+		WHERE id = $1 AND reviewer_id = $2 AND status IN ('in_progress', 'completed')
 	`
 
 	result, err := r.db.Exec(query, taskID, reviewerID)
@@ -196,15 +203,16 @@ func (r *VideoQueueRepository) CompleteQueueTask(taskID int, reviewerID int) err
 }
 
 // CreateQueueResult creates a review result for a queue task
-func (r *VideoQueueRepository) CreateQueueResult(result *models.VideoQueueResult) error {
+func (r *VideoQueueRepository) CreateQueueResult(result *models.VideoQueueResult) (bool, error) {
 	// Validate tags (max 3)
 	if len(result.Tags) > 3 {
-		return errors.New("maximum 3 tags allowed")
+		return false, errors.New("maximum 3 tags allowed")
 	}
 
 	query := `
 		INSERT INTO video_queue_results (task_id, reviewer_id, review_decision, reason, tags, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (task_id) DO NOTHING
 		RETURNING id, created_at
 	`
 
@@ -217,7 +225,32 @@ func (r *VideoQueueRepository) CreateQueueResult(result *models.VideoQueueResult
 		pq.Array(result.Tags),
 	).Scan(&result.ID, &result.CreatedAt)
 
-	return err
+	if err == nil {
+		return true, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+
+	existingQuery := `
+		SELECT id, reviewer_id, review_decision, reason, tags, created_at
+		FROM video_queue_results
+		WHERE task_id = $1
+	`
+	var tags []string
+	err = r.db.QueryRow(existingQuery, result.TaskID).Scan(
+		&result.ID,
+		&result.ReviewerID,
+		&result.ReviewDecision,
+		&result.Reason,
+		pq.Array(&tags),
+		&result.CreatedAt,
+	)
+	if err != nil {
+		return false, err
+	}
+	result.Tags = tags
+	return false, nil
 }
 
 // ReturnQueueTasks returns tasks back to pending status

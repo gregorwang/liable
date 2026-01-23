@@ -18,13 +18,21 @@ func NewQualityCheckRepository() *QualityCheckRepository {
 }
 
 // CreateQCTask creates a new quality check task
-func (r *QualityCheckRepository) CreateQCTask(firstReviewResultID int, commentID int64) error {
+func (r *QualityCheckRepository) CreateQCTask(firstReviewResultID int, commentID int64) (bool, error) {
 	query := `
 		INSERT INTO quality_check_tasks (first_review_result_id, comment_id, status, created_at)
 		VALUES ($1, $2, 'pending', NOW())
+		ON CONFLICT (first_review_result_id) DO NOTHING
 	`
-	_, err := r.db.Exec(query, firstReviewResultID, commentID)
-	return err
+	result, err := r.db.Exec(query, firstReviewResultID, commentID)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rowsAffected > 0, nil
 }
 
 // ClaimQCTasks claims pending quality check tasks for a reviewer
@@ -195,8 +203,8 @@ func (r *QualityCheckRepository) GetMyQCTasks(reviewerID int) ([]models.QualityC
 func (r *QualityCheckRepository) CompleteQCTask(taskID, reviewerID int) error {
 	query := `
 		UPDATE quality_check_tasks
-		SET status = 'completed', completed_at = NOW()
-		WHERE id = $1 AND reviewer_id = $2 AND status = 'in_progress'
+		SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+		WHERE id = $1 AND reviewer_id = $2 AND status IN ('in_progress', 'completed')
 	`
 	result, err := r.db.Exec(query, taskID, reviewerID)
 	if err != nil {
@@ -216,14 +224,39 @@ func (r *QualityCheckRepository) CompleteQCTask(taskID, reviewerID int) error {
 }
 
 // CreateQCResult creates a quality check result
-func (r *QualityCheckRepository) CreateQCResult(result *models.QualityCheckResult) error {
+func (r *QualityCheckRepository) CreateQCResult(result *models.QualityCheckResult) (bool, error) {
 	query := `
 		INSERT INTO quality_check_results (qc_task_id, reviewer_id, is_passed, error_type, qc_comment, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (qc_task_id) DO NOTHING
 		RETURNING id, created_at
 	`
-	return r.db.QueryRow(query, result.QCTaskID, result.ReviewerID, result.IsPassed,
+	err := r.db.QueryRow(query, result.QCTaskID, result.ReviewerID, result.IsPassed,
 		result.ErrorType, result.QCComment).Scan(&result.ID, &result.CreatedAt)
+	if err == nil {
+		return true, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+
+	existingQuery := `
+		SELECT id, reviewer_id, is_passed, error_type, qc_comment, created_at
+		FROM quality_check_results
+		WHERE qc_task_id = $1
+	`
+	err = r.db.QueryRow(existingQuery, result.QCTaskID).Scan(
+		&result.ID,
+		&result.ReviewerID,
+		&result.IsPassed,
+		&result.ErrorType,
+		&result.QCComment,
+		&result.CreatedAt,
+	)
+	if err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // ReturnQCTasks returns multiple quality check tasks back to pending status for a specific reviewer

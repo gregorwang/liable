@@ -13,11 +13,13 @@ import (
 
 type AuthHandler struct {
 	authService *services.AuthService
+	profileService *services.ProfileService
 }
 
 func NewAuthHandler() *AuthHandler {
 	return &AuthHandler{
 		authService: services.NewAuthService(),
+		profileService: services.NewProfileService(),
 	}
 }
 
@@ -62,14 +64,18 @@ func (h *AuthHandler) LoginWithCode(c *gin.Context) {
             user = u2
         }
     }
-    if user == nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
-        return
-    }
-    if user.Status != "approved" {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未审批"})
-        return
-    }
+	if user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		return
+	}
+	if user.Email != nil && !user.EmailVerified {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "邮箱未验证"})
+		return
+	}
+	if user.Status != "approved" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号未审批"})
+		return
+	}
     token, err := jwtpkg.GenerateToken(user.ID, user.Username, user.Role, config.AppConfig.JWTSecret)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
@@ -168,12 +174,81 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) GetProfile(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	
-	user, err := h.authService.GetUserByID(userID)
+	user, permissions, err := h.profileService.GetProfile(userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": user})
+	c.JSON(http.StatusOK, gin.H{"user": user, "permissions": permissions})
+}
+
+// UpdateProfile updates editable profile fields for current user.
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	var req models.UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.profileService.UpdateProfile(userID, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	user, permissions, err := h.profileService.GetProfile(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "permissions": permissions})
+}
+
+// UpdateSystemProfile updates system-managed profile fields for current user.
+func (h *AuthHandler) UpdateSystemProfile(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	var req models.UpdateSystemProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.profileService.UpdateSystemProfile(userID, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	user, permissions, err := h.profileService.GetProfile(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "permissions": permissions})
+}
+
+// UploadAvatar uploads an avatar for current user.
+func (h *AuthHandler) UploadAvatar(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少头像文件"})
+		return
+	}
+	if err := h.profileService.UpdateAvatar(userID, file); err != nil {
+		switch err {
+		case services.ErrAvatarTooLarge:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "头像文件过大，请小于1MB"})
+		case services.ErrUnsupportedAvatarType:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "仅支持PNG/JPG/WEBP格式头像"})
+		case services.ErrAvatarStorageMissing:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "头像存储未配置"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+	user, permissions, err := h.profileService.GetProfile(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "permissions": permissions})
 }
 

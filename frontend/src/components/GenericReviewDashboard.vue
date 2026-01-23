@@ -74,7 +74,8 @@
           <el-button
             v-if="config.showBatchSubmit"
             size="large"
-            :disabled="selectedCount === 0"
+            :disabled="selectedCount === 0 || batchLoading"
+            :loading="batchLoading"
             @click="$emit('batch-submit')"
           >
             批量提交（{{ selectedCount }}条）
@@ -130,6 +131,7 @@ const props = defineProps<{
   taskCount: number
   selectedCount?: number
   claimLoading?: boolean
+  batchLoading?: boolean
   claimCount?: number
   returnCount?: number
   statsData?: Record<string, any>

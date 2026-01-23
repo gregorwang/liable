@@ -9,8 +9,6 @@ import fc from 'fast-check'
 import {
     qualityCheckDashboardConfig,
     secondReviewDashboardConfig,
-    videoFirstReviewDashboardConfig,
-    videoSecondReviewDashboardConfig,
     createDashboardConfig,
     createStatConfig,
     statFormatters
@@ -20,9 +18,7 @@ import type { DashboardConfig, StatConfig } from '@/components/GenericReviewDash
 // 所有预定义的 Dashboard 配置
 const allConfigs: DashboardConfig[] = [
     qualityCheckDashboardConfig,
-    secondReviewDashboardConfig,
-    videoFirstReviewDashboardConfig,
-    videoSecondReviewDashboardConfig
+    secondReviewDashboardConfig
 ]
 
 describe('Dashboard Configs - Property Tests', () => {

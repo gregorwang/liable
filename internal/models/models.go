@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // User represents a user (reviewer or admin)
 type User struct {
@@ -11,6 +14,15 @@ type User struct {
 	EmailVerified bool      `json:"email_verified"`  // Email verified flag
 	Role          string    `json:"role"`            // "reviewer" or "admin"
 	Status        string    `json:"status"`          // "pending", "approved", "rejected"
+	AvatarKey     *string   `json:"avatar_key,omitempty"`
+	AvatarURL     *string   `json:"avatar_url,omitempty"`
+	Gender        *string   `json:"gender,omitempty"`
+	Signature     *string   `json:"signature,omitempty"`
+	OfficeLocation *string  `json:"office_location,omitempty"`
+	Department    *string   `json:"department,omitempty"`
+	School        *string   `json:"school,omitempty"`
+	Company       *string   `json:"company,omitempty"`
+	DirectManager *string   `json:"direct_manager,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -54,6 +66,169 @@ type TagConfig struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// SystemDocument represents editable markdown documents for the platform.
+type SystemDocument struct {
+	Key       string    `json:"key"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedBy *int      `json:"updated_by,omitempty"`
+}
+
+// Audit Log Models
+
+type AuditLogEntry struct {
+	ID                string          `json:"id"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UserID            *int            `json:"user_id,omitempty"`
+	Username          string          `json:"username,omitempty"`
+	UserRole          string          `json:"user_role,omitempty"`
+	ActionType        string          `json:"action_type,omitempty"`
+	ActionCategory    string          `json:"action_category,omitempty"`
+	ActionDescription string          `json:"action_description,omitempty"`
+	Result            string          `json:"result,omitempty"`
+	Endpoint          string          `json:"endpoint,omitempty"`
+	HTTPMethod        string          `json:"http_method,omitempty"`
+	StatusCode        int             `json:"status_code,omitempty"`
+	RequestID         string          `json:"request_id,omitempty"`
+	SessionID         string          `json:"session_id,omitempty"`
+	RequestBody       json.RawMessage `json:"request_body,omitempty"`
+	ResponseBody      json.RawMessage `json:"response_body,omitempty"`
+	IPAddress         string          `json:"ip_address,omitempty"`
+	UserAgent         string          `json:"user_agent,omitempty"`
+	GeoLocation       string          `json:"geo_location,omitempty"`
+	DeviceType        string          `json:"device_type,omitempty"`
+	Browser           string          `json:"browser,omitempty"`
+	OS                string          `json:"os,omitempty"`
+	ResourceType      string          `json:"resource_type,omitempty"`
+	ResourceID        string          `json:"resource_id,omitempty"`
+	ResourceIDs       json.RawMessage `json:"resource_ids,omitempty"`
+	Changes           json.RawMessage `json:"changes,omitempty"`
+	ErrorCode         string          `json:"error_code,omitempty"`
+	ErrorType         string          `json:"error_type,omitempty"`
+	ErrorDescription  string          `json:"error_description,omitempty"`
+	ErrorMessage      string          `json:"error_message,omitempty"`
+	ErrorStack        string          `json:"error_stack,omitempty"`
+	DurationMs        int             `json:"duration_ms,omitempty"`
+	ModuleName        string          `json:"module_name,omitempty"`
+	MethodName        string          `json:"method_name,omitempty"`
+	ServerIP          string          `json:"server_ip,omitempty"`
+	ServerPort        string          `json:"server_port,omitempty"`
+	PageURL           string          `json:"page_url,omitempty"`
+	RequestParams     json.RawMessage `json:"request_params,omitempty"`
+}
+
+type AuditLogQueryRequest struct {
+	StartTime        string `form:"start_time" binding:"required"`
+	EndTime          string `form:"end_time" binding:"required"`
+	UserID           *int   `form:"user_id"`
+	Username         string `form:"username"`
+	UserRole         string `form:"user_role"`
+	ActionTypes      string `form:"action_types"`
+	ActionCategories string `form:"action_categories"`
+	Result           string `form:"result"`
+	IPAddress        string `form:"ip_address"`
+	Endpoint         string `form:"endpoint"`
+	HTTPMethod       string `form:"http_method"`
+	StatusCode       *int   `form:"status_code"`
+	ResourceType     string `form:"resource_type"`
+	ResourceID       string `form:"resource_id"`
+	Keyword          string `form:"keyword"`
+	MinDurationMs    *int   `form:"min_duration_ms"`
+	MaxDurationMs    *int   `form:"max_duration_ms"`
+	GeoLocation      string `form:"geo_location"`
+	DeviceType       string `form:"device_type"`
+	Page             int    `form:"page"`
+	PageSize         int    `form:"page_size"`
+	SortBy           string `form:"sort_by"`
+	SortOrder        string `form:"sort_order"`
+}
+
+type AuditLogQueryFilters struct {
+	StartTime        time.Time
+	EndTime          time.Time
+	UserID           *int
+	Username         string
+	UserRole         string
+	ActionTypes      []string
+	ActionCategories []string
+	Result           string
+	IPAddress        string
+	Endpoint         string
+	HTTPMethod       string
+	StatusCode       *int
+	ResourceType     string
+	ResourceID       string
+	Keyword          string
+	MinDurationMs    *int
+	MaxDurationMs    *int
+	GeoLocation      string
+	DeviceType       string
+}
+
+type AuditLogQueryResponse struct {
+	Data       []AuditLogEntry `json:"data"`
+	Total      int             `json:"total"`
+	Page       int             `json:"page"`
+	PageSize   int             `json:"page_size"`
+	TotalPages int             `json:"total_pages"`
+}
+
+type AuditLogExportRequest struct {
+	StartTime        string   `json:"start_time" binding:"required"`
+	EndTime          string   `json:"end_time" binding:"required"`
+	Format           string   `json:"format" binding:"required,oneof=csv json xlsx"`
+	Fields           []string `json:"fields"`
+	UserID           *int     `json:"user_id,omitempty"`
+	Username         string   `json:"username,omitempty"`
+	UserRole         string   `json:"user_role,omitempty"`
+	ActionTypes      []string `json:"action_types,omitempty"`
+	ActionCategories []string `json:"action_categories,omitempty"`
+	Result           string   `json:"result,omitempty"`
+	IPAddress        string   `json:"ip_address,omitempty"`
+	Endpoint         string   `json:"endpoint,omitempty"`
+	HTTPMethod       string   `json:"http_method,omitempty"`
+	StatusCode       *int     `json:"status_code,omitempty"`
+	ResourceType     string   `json:"resource_type,omitempty"`
+	ResourceID       string   `json:"resource_id,omitempty"`
+	Keyword          string   `json:"keyword,omitempty"`
+	MinDurationMs    *int     `json:"min_duration_ms,omitempty"`
+	MaxDurationMs    *int     `json:"max_duration_ms,omitempty"`
+	GeoLocation      string   `json:"geo_location,omitempty"`
+	DeviceType       string   `json:"device_type,omitempty"`
+}
+
+type AuditLogExportResponse struct {
+	ExportID    string    `json:"export_id"`
+	DownloadURL string    `json:"download_url"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	RowCount    int       `json:"row_count"`
+}
+
+type AuditLogExportRecord struct {
+	ID           string          `json:"id"`
+	UserID       int             `json:"user_id"`
+	Username     string          `json:"username"`
+	ExportFormat string          `json:"export_format"`
+	Filters      json.RawMessage `json:"filters,omitempty"`
+	Fields       []string        `json:"fields,omitempty"`
+	Status       string          `json:"status"`
+	RowCount     int             `json:"row_count,omitempty"`
+	FileKey      *string         `json:"file_key,omitempty"`
+	DownloadURL  *string         `json:"download_url,omitempty"`
+	ExpiresAt    *time.Time      `json:"expires_at,omitempty"`
+	ErrorMessage *string         `json:"error_message,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+}
+
+type AuditLogExportListResponse struct {
+	Data       []AuditLogExportRecord `json:"data"`
+	Total      int                    `json:"total"`
+	Page       int                    `json:"page"`
+	PageSize   int                    `json:"page_size"`
+	TotalPages int                    `json:"total_pages"`
+}
+
 // Request/Response DTOs
 
 type RegisterRequest struct {
@@ -69,6 +244,19 @@ type LoginRequest struct {
 type LoginResponse struct {
 	Token string `json:"token"`
 	User  User   `json:"user"`
+}
+
+type UpdateProfileRequest struct {
+	Gender    *string `json:"gender" binding:"omitempty,oneof=male female other unknown"`
+	Signature *string `json:"signature" binding:"omitempty,max=200"`
+}
+
+type UpdateSystemProfileRequest struct {
+	OfficeLocation *string `json:"office_location" binding:"omitempty,max=100"`
+	Department     *string `json:"department" binding:"omitempty,max=100"`
+	School         *string `json:"school" binding:"omitempty,max=100"`
+	Company        *string `json:"company" binding:"omitempty,max=100"`
+	DirectManager  *string `json:"direct_manager" binding:"omitempty,max=100"`
 }
 
 type ClaimTasksRequest struct {
@@ -88,7 +276,7 @@ type SubmitReviewRequest struct {
 	TaskID     int      `json:"task_id" binding:"required"`
 	IsApproved bool     `json:"is_approved"`
 	Tags       []string `json:"tags"`
-	Reason     string   `json:"reason"`
+	Reason     string   `json:"reason" binding:"max=2000"`
 }
 
 type BatchSubmitRequest struct {
@@ -97,6 +285,14 @@ type BatchSubmitRequest struct {
 
 type ApproveUserRequest struct {
 	Status string `json:"status" binding:"required,oneof=approved rejected"`
+}
+
+type CreateUserRequest struct {
+	Username string  `json:"username" binding:"required,min=3,max=50"`
+	Email    *string `json:"email" binding:"omitempty,email"`
+	Password *string `json:"password" binding:"omitempty,min=6"`
+	Role     string  `json:"role" binding:"omitempty,oneof=admin reviewer"`
+	Status   string  `json:"status" binding:"omitempty,oneof=pending approved rejected"`
 }
 
 type StatsOverview struct {
@@ -286,6 +482,178 @@ type UpdateTagRequest struct {
 	IsActive    *bool  `json:"is_active"`
 }
 
+type UpdateSystemDocumentRequest struct {
+	Content string `json:"content" binding:"required"`
+}
+
+// AI Review Models
+
+type AIReviewJob struct {
+	ID             int        `json:"id"`
+	Status         string     `json:"status"`
+	RunAt          *time.Time `json:"run_at,omitempty"`
+	MaxCount       int        `json:"max_count"`
+	SourceStatuses []string   `json:"source_statuses"`
+	Model          *string    `json:"model,omitempty"`
+	PromptVersion  *string    `json:"prompt_version,omitempty"`
+	CreatedBy      *int       `json:"created_by,omitempty"`
+	TotalTasks     int        `json:"total_tasks"`
+	CompletedTasks int        `json:"completed_tasks"`
+	FailedTasks    int        `json:"failed_tasks"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	ArchivedAt     *time.Time `json:"archived_at,omitempty"`
+}
+
+type AIReviewTask struct {
+	ID           int             `json:"id"`
+	JobID        int             `json:"job_id"`
+	ReviewTaskID int             `json:"review_task_id"`
+	CommentID    int64           `json:"comment_id"`
+	Status       string          `json:"status"`
+	Attempts     int             `json:"attempts"`
+	ErrorMessage *string         `json:"error_message,omitempty"`
+	StartedAt    *time.Time      `json:"started_at,omitempty"`
+	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	CommentText  *string         `json:"comment_text,omitempty"`
+	Result       *AIReviewResult `json:"result,omitempty"`
+}
+
+type AIReviewResult struct {
+	ID         int       `json:"id"`
+	TaskID     int       `json:"task_id"`
+	IsApproved bool      `json:"is_approved"`
+	Tags       []string  `json:"tags"`
+	Reason     string    `json:"reason"`
+	Confidence int       `json:"confidence"`
+	RawOutput  *string   `json:"raw_output,omitempty"`
+	Model      *string   `json:"model,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type CreateAIReviewJobRequest struct {
+	RunAt          *string  `json:"run_at,omitempty"`
+	MaxCount       int      `json:"max_count" binding:"required,min=1,max=100000"`
+	SourceStatuses []string `json:"source_statuses,omitempty"`
+	PromptVersion  *string  `json:"prompt_version,omitempty"`
+}
+
+type ListAIReviewJobsRequest struct {
+	Page            int  `form:"page"`
+	PageSize        int  `form:"page_size"`
+	IncludeArchived bool `form:"include_archived"`
+}
+
+type ListAIReviewJobsResponse struct {
+	Data       []AIReviewJob `json:"data"`
+	Total      int           `json:"total"`
+	Page       int           `json:"page"`
+	PageSize   int           `json:"page_size"`
+	TotalPages int           `json:"total_pages"`
+}
+
+type ListAIReviewTasksRequest struct {
+	Page     int `form:"page"`
+	PageSize int `form:"page_size"`
+}
+
+type ListAIReviewTasksResponse struct {
+	Data       []AIReviewTask `json:"data"`
+	Total      int            `json:"total"`
+	Page       int            `json:"page"`
+	PageSize   int            `json:"page_size"`
+	TotalPages int            `json:"total_pages"`
+}
+
+type AIReviewComparison struct {
+	TotalAIResults        int     `json:"total_ai_results"`
+	ComparableCount       int     `json:"comparable_count"`
+	PendingCompareCount   int     `json:"pending_compare_count"`
+	DecisionMatchCount    int     `json:"decision_match_count"`
+	DecisionMismatchCount int     `json:"decision_mismatch_count"`
+	DecisionMatchRate     float64 `json:"decision_match_rate"`
+	TagComparableCount    int     `json:"tag_comparable_count"`
+	TagOverlapCount       int     `json:"tag_overlap_count"`
+	TagOverlapRate        float64 `json:"tag_overlap_rate"`
+}
+
+type AIReviewDiffSample struct {
+	ReviewTaskID  int64    `json:"review_task_id"`
+	CommentID     int64    `json:"comment_id"`
+	CommentText   string   `json:"comment_text"`
+	HumanApproved *bool    `json:"human_is_approved,omitempty"`
+	HumanTags     []string `json:"human_tags,omitempty"`
+	HumanReason   *string  `json:"human_reason,omitempty"`
+	AIApproved    bool     `json:"ai_is_approved"`
+	AITags        []string `json:"ai_tags"`
+	AIReason      string   `json:"ai_reason"`
+	Confidence    int      `json:"confidence"`
+}
+
+type AIReviewComparisonResponse struct {
+	Summary AIReviewComparison   `json:"summary"`
+	Diffs   []AIReviewDiffSample `json:"diffs"`
+}
+
+// AI Human Diff Models
+
+type AIHumanDiffTask struct {
+	ID               int             `json:"id"`
+	ReviewTaskID     int             `json:"review_task_id"`
+	CommentID        int64           `json:"comment_id"`
+	ReviewResultID   int             `json:"review_result_id"`
+	AIReviewResultID int             `json:"ai_review_result_id"`
+	ReviewerID       *int            `json:"reviewer_id"`
+	Status           string          `json:"status"`
+	ClaimedAt        *time.Time      `json:"claimed_at"`
+	CompletedAt      *time.Time      `json:"completed_at"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	Comment          *Comment        `json:"comment,omitempty"`
+	HumanReview      *ReviewResult   `json:"human_review_result,omitempty"`
+	AIReview         *AIReviewResult `json:"ai_review_result,omitempty"`
+}
+
+type AIHumanDiffResult struct {
+	ID         int       `json:"id"`
+	TaskID     int       `json:"task_id"`
+	ReviewerID int       `json:"reviewer_id"`
+	IsApproved bool      `json:"is_approved"`
+	Tags       []string  `json:"tags"`
+	Reason     string    `json:"reason"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Request/Response DTOs for AI Human Diff Queue
+
+type ClaimAIHumanDiffTasksRequest struct {
+	Count int `json:"count" binding:"required,min=1,max=50"`
+}
+
+type ClaimAIHumanDiffTasksResponse struct {
+	Tasks []AIHumanDiffTask `json:"tasks"`
+	Count int               `json:"count"`
+}
+
+type SubmitAIHumanDiffRequest struct {
+	TaskID     int      `json:"task_id" binding:"required"`
+	IsApproved bool     `json:"is_approved"`
+	Tags       []string `json:"tags"`
+	Reason     string   `json:"reason" binding:"max=2000"`
+}
+
+type BatchSubmitAIHumanDiffRequest struct {
+	Reviews []SubmitAIHumanDiffRequest `json:"reviews" binding:"required,dive"`
+}
+
+type ReturnAIHumanDiffTasksRequest struct {
+	TaskIDs []int `json:"task_ids" binding:"required,min=1,dive,required"`
+}
+
 // SearchTasksRequest for searching review records
 type SearchTasksRequest struct {
 	CommentID       *int64  `form:"comment_id"`        // 评论ID（精确匹配）
@@ -294,43 +662,30 @@ type SearchTasksRequest struct {
 	ReviewStartTime *string `form:"review_start_time"` // 审核开始时间
 	ReviewEndTime   *string `form:"review_end_time"`   // 审核结束时间
 	QueueType       string  `form:"queue_type"`        // 队列类型：first/second/all
+	QueueName       string  `form:"queue_name"`        // 队列名称：comment_first_review/video_queue等
 	Page            int     `form:"page"`              // 页码，默认1
 	PageSize        int     `form:"page_size"`         // 每页数量，默认10
 }
 
 // TaskSearchResult represents a complete task with review result
 type TaskSearchResult struct {
-	ID          int        `json:"id"`
-	CommentID   int64      `json:"comment_id"`
-	CommentText string     `json:"comment_text"`
-	ReviewerID  int        `json:"reviewer_id"`
-	Username    string     `json:"username"`
-	Status      string     `json:"status"`
-	ClaimedAt   *time.Time `json:"claimed_at"`
-	CompletedAt *time.Time `json:"completed_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	QueueType   string     `json:"queue_type"` // "first" or "second"
-
-	// First review result fields (if available)
-	ReviewID   *int       `json:"review_id,omitempty"`
-	IsApproved *bool      `json:"is_approved,omitempty"`
-	Tags       []string   `json:"tags,omitempty"`
-	Reason     *string    `json:"reason,omitempty"`
-	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
-
-	// Second review specific fields (only for second review tasks)
-	SecondReviewID   *int       `json:"second_review_id,omitempty"`
-	SecondIsApproved *bool      `json:"second_is_approved,omitempty"`
-	SecondTags       []string   `json:"second_tags,omitempty"`
-	SecondReason     *string    `json:"second_reason,omitempty"`
-	SecondReviewedAt *time.Time `json:"second_reviewed_at,omitempty"`
-	SecondReviewerID *int       `json:"second_reviewer_id,omitempty"`
-	SecondUsername   *string    `json:"second_username,omitempty"`
-
-	// First review info for second review tasks
-	FirstReviewerID   *int    `json:"first_reviewer_id,omitempty"`
-	FirstUsername     *string `json:"first_username,omitempty"`
-	FirstReviewReason *string `json:"first_review_reason,omitempty"`
+	ID                int        `json:"id"`
+	QueueName         string     `json:"queue_name"`
+	ContentType       string     `json:"content_type"`
+	ContentID         int64      `json:"content_id"`
+	ContentText       string     `json:"content_text"`
+	ReviewerID        *int       `json:"reviewer_id,omitempty"`
+	ReviewerUsername  *string    `json:"reviewer_username,omitempty"`
+	Status            string     `json:"status"`
+	ClaimedAt         *time.Time `json:"claimed_at,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	Decision          *string    `json:"decision,omitempty"`
+	Tags              []string   `json:"tags,omitempty"`
+	Reason            *string    `json:"reason,omitempty"`
+	Pool              *string    `json:"pool,omitempty"`
+	OverallScore      *int       `json:"overall_score,omitempty"`
+	TrafficPoolResult *string    `json:"traffic_pool_result,omitempty"`
 }
 
 // SearchTasksResponse for paginated search results
@@ -472,6 +827,112 @@ type NotificationResponse struct {
 	ReadAt    *time.Time `json:"read_at,omitempty"`
 }
 
+// BugReportScreenshot stores metadata for uploaded screenshots
+type BugReportScreenshot struct {
+	Key         string `json:"key"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type"`
+}
+
+// BugReportScreenshotView includes presigned URL for display
+type BugReportScreenshotView struct {
+	Key         string `json:"key"`
+	Filename    string `json:"filename"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type"`
+	URL         string `json:"url,omitempty"`
+}
+
+// BugReport represents a user-submitted bug report
+type BugReport struct {
+	ID           int                   `json:"id"`
+	UserID       int                   `json:"user_id"`
+	Title        string                `json:"title"`
+	Description  string                `json:"description"`
+	ErrorDetails string                `json:"error_details,omitempty"`
+	PageURL      string                `json:"page_url,omitempty"`
+	UserAgent    string                `json:"user_agent,omitempty"`
+	Screenshots  []BugReportScreenshot `json:"screenshots"`
+	CreatedAt    time.Time             `json:"created_at"`
+}
+
+// BugReportAdminRecord is a row for admin listing
+type BugReportAdminRecord struct {
+	ID           int                   `json:"id"`
+	UserID       int                   `json:"user_id"`
+	Username     string                `json:"username"`
+	Title        string                `json:"title"`
+	Description  string                `json:"description"`
+	ErrorDetails string                `json:"error_details,omitempty"`
+	PageURL      string                `json:"page_url,omitempty"`
+	UserAgent    string                `json:"user_agent,omitempty"`
+	Screenshots  []BugReportScreenshot `json:"screenshots"`
+	CreatedAt    time.Time             `json:"created_at"`
+}
+
+// BugReportAdminItem is the API response format for admin listing
+type BugReportAdminItem struct {
+	ID           int                       `json:"id"`
+	UserID       int                       `json:"user_id"`
+	Username     string                    `json:"username"`
+	Title        string                    `json:"title"`
+	Description  string                    `json:"description"`
+	ErrorDetails string                    `json:"error_details,omitempty"`
+	PageURL      string                    `json:"page_url,omitempty"`
+	UserAgent    string                    `json:"user_agent,omitempty"`
+	Screenshots  []BugReportScreenshotView `json:"screenshots"`
+	CreatedAt    time.Time                 `json:"created_at"`
+}
+
+// BugReportListResponse provides paginated admin results
+type BugReportListResponse struct {
+	Data       []BugReportAdminItem `json:"data"`
+	Total      int                  `json:"total"`
+	Page       int                  `json:"page"`
+	PageSize   int                  `json:"page_size"`
+	TotalPages int                  `json:"total_pages"`
+}
+
+// BugReportQueryRequest represents search and filter parameters for admin list
+type BugReportQueryRequest struct {
+	StartTime string `form:"start_time"`
+	EndTime   string `form:"end_time"`
+	UserID    int    `form:"user_id"`
+	Username  string `form:"username"`
+	Keyword   string `form:"keyword"`
+	Page      int    `form:"page"`
+	PageSize  int    `form:"page_size"`
+}
+
+// BugReportExportRequest represents export parameters for admin
+type BugReportExportRequest struct {
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	Keyword   string `json:"keyword"`
+	Format    string `json:"format"`
+}
+
+// BugReportQueryFilters is a parsed filter set for repository queries
+type BugReportQueryFilters struct {
+	StartTime *time.Time
+	EndTime   *time.Time
+	UserID    *int
+	Username  string
+	Keyword   string
+}
+
+// CreateBugReportInput captures sanitized bug report fields
+type CreateBugReportInput struct {
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	ErrorDetails string `json:"error_details"`
+	PageURL      string `json:"page_url"`
+	UserAgent    string `json:"user_agent"`
+}
+
 // SSEMessage represents a message sent via Server-Sent Events
 type SSEMessage struct {
 	Type string      `json:"type"` // 'notification', 'heartbeat'
@@ -526,7 +987,7 @@ type SubmitSecondReviewRequest struct {
 	TaskID     int      `json:"task_id" binding:"required"`
 	IsApproved bool     `json:"is_approved"`
 	Tags       []string `json:"tags"`
-	Reason     string   `json:"reason"`
+	Reason     string   `json:"reason" binding:"max=2000"`
 }
 
 type BatchSubmitSecondReviewRequest struct {
@@ -579,7 +1040,7 @@ type SubmitQCRequest struct {
 	TaskID    int     `json:"task_id" binding:"required"`
 	IsPassed  bool    `json:"is_passed"`
 	ErrorType *string `json:"error_type,omitempty"`
-	QCComment *string `json:"qc_comment,omitempty"`
+	QCComment *string `json:"qc_comment,omitempty" binding:"omitempty,max=2000"`
 }
 
 type BatchSubmitQCRequest struct {
@@ -741,7 +1202,7 @@ type SubmitVideoFirstReviewRequest struct {
 	IsApproved        bool              `json:"is_approved"`
 	QualityDimensions QualityDimensions `json:"quality_dimensions" binding:"required"`
 	TrafficPoolResult *string           `json:"traffic_pool_result"`
-	Reason            *string           `json:"reason"`
+	Reason            *string           `json:"reason" binding:"omitempty,max=2000"`
 }
 
 type BatchSubmitVideoFirstReviewRequest struct {
@@ -766,7 +1227,7 @@ type SubmitVideoSecondReviewRequest struct {
 	IsApproved        bool              `json:"is_approved"`
 	QualityDimensions QualityDimensions `json:"quality_dimensions" binding:"required"`
 	TrafficPoolResult *string           `json:"traffic_pool_result"`
-	Reason            *string           `json:"reason"`
+	Reason            *string           `json:"reason" binding:"omitempty,max=2000"`
 }
 
 type BatchSubmitVideoSecondReviewRequest struct {
@@ -898,7 +1359,7 @@ type ClaimVideoQueueTasksResponse struct {
 type SubmitVideoQueueReviewRequest struct {
 	TaskID         int      `json:"task_id" binding:"required"`
 	ReviewDecision string   `json:"review_decision" binding:"required,oneof=push_next_pool natural_pool remove_violation"`
-	Reason         string   `json:"reason" binding:"required,min=1"`
+	Reason         string   `json:"reason" binding:"required,min=1,max=2000"`
 	Tags           []string `json:"tags" binding:"max=3"`
 }
 

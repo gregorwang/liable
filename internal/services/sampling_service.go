@@ -110,7 +110,7 @@ func (s *SamplingService) DailySamplingTask() error {
 		}
 
 		// Create quality check task
-		err = s.qcRepo.CreateQCTask(result.ID, commentID)
+		createdTask, err := s.qcRepo.CreateQCTask(result.ID, commentID)
 		if err != nil {
 			log.Printf("Failed to create QC task for result %d: %v", result.ID, err)
 			continue
@@ -118,11 +118,13 @@ func (s *SamplingService) DailySamplingTask() error {
 
 		resultIDs = append(resultIDs, result.ID)
 
-		// Push to Redis queue
-		queueKey := "review:queue:quality_check"
-		err = s.rdb.LPush(s.ctx, queueKey, commentID).Err()
-		if err != nil {
-			log.Printf("Redis error pushing to QC queue: %v", err)
+		if createdTask {
+			// Push to Redis queue
+			queueKey := "review:queue:quality_check"
+			err = s.rdb.LPush(s.ctx, queueKey, commentID).Err()
+			if err != nil {
+				log.Printf("Redis error pushing to QC queue: %v", err)
+			}
 		}
 	}
 

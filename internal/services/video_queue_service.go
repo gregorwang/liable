@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -133,7 +134,8 @@ func (s *VideoQueueService) SubmitReview(pool string, reviewerID int, req models
 		Tags:           req.Tags,
 	}
 
-	if err := s.queueRepo.CreateQueueResult(result); err != nil {
+	createdResult, err := s.queueRepo.CreateQueueResult(result)
+	if err != nil {
 		return err
 	}
 
@@ -143,9 +145,9 @@ func (s *VideoQueueService) SubmitReview(pool string, reviewerID int, req models
 		log.Printf("Error getting task for queue flow: %v", err)
 	} else {
 		// Handle queue flow based on review decision
-		if err := s.handleQueueFlow(pool, task.VideoID, req.ReviewDecision); err != nil {
-			log.Printf("Error handling queue flow: %v", err)
-		}
+	if err := s.handleQueueFlow(pool, task.VideoID, req.ReviewDecision); err != nil {
+		log.Printf("Error handling queue flow: %v", err)
+	}
 	}
 
 	// Remove from Redis
@@ -162,17 +164,23 @@ func (s *VideoQueueService) SubmitReview(pool string, reviewerID int, req models
 	}
 
 	// Update statistics in Redis
-	s.updateQueueStats(pool, result)
+	if createdResult {
+		s.updateQueueStats(pool, result)
+	}
 
 	return nil
 }
 
 // SubmitBatchReviews submits multiple reviews at once
 func (s *VideoQueueService) SubmitBatchReviews(pool string, reviewerID int, reviews []models.SubmitVideoQueueReviewRequest) error {
+	var failed []string
 	for _, review := range reviews {
 		if err := s.SubmitReview(pool, reviewerID, review); err != nil {
-			return err
+			failed = append(failed, fmt.Sprintf("task %d: %v", review.TaskID, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to submit %d video queue reviews: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return nil
 }
@@ -277,14 +285,17 @@ func (s *VideoQueueService) handleQueueFlow(currentPool string, videoID int, dec
 		}
 
 		// Create task in next pool
-		if err := s.queueRepo.CreateQueueTask(videoID, nextPool); err != nil {
+		createdTask, err := s.queueRepo.CreateQueueTask(videoID, nextPool)
+		if err != nil {
 			return fmt.Errorf("failed to create task in %s pool: %w", nextPool, err)
 		}
 
-		// Push to Redis queue for next pool
-		queueKey := fmt.Sprintf("video:queue:%s", nextPool)
-		if err := s.rdb.LPush(s.ctx, queueKey, videoID).Err(); err != nil {
-			log.Printf("Redis error pushing to %s queue: %v", nextPool, err)
+		if createdTask {
+			// Push to Redis queue for next pool
+			queueKey := fmt.Sprintf("video:queue:%s", nextPool)
+			if err := s.rdb.LPush(s.ctx, queueKey, videoID).Err(); err != nil {
+				log.Printf("Redis error pushing to %s queue: %v", nextPool, err)
+			}
 		}
 
 		log.Printf("Video %d promoted from %s to %s pool", videoID, currentPool, nextPool)

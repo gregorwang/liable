@@ -4,11 +4,14 @@ import (
 	"comment-review-platform/internal/config"
 	"comment-review-platform/internal/models"
 	"comment-review-platform/internal/repository"
+	"comment-review-platform/pkg/database"
 	redispkg "comment-review-platform/pkg/redis"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,6 +21,8 @@ type TaskService struct {
 	taskRepo         *repository.TaskRepository
 	secondReviewRepo *repository.SecondReviewRepository
 	tagRepo          *repository.TagRepository
+	diffRepo         *repository.AIHumanDiffRepository
+	commentRepo      *repository.CommentRepository
 	rdb              *redis.Client
 	ctx              context.Context
 }
@@ -27,6 +32,8 @@ func NewTaskService() *TaskService {
 		taskRepo:         repository.NewTaskRepository(),
 		secondReviewRepo: repository.NewSecondReviewRepository(),
 		tagRepo:          repository.NewTagRepository(),
+		diffRepo:         repository.NewAIHumanDiffRepository(),
+		commentRepo:      repository.NewCommentRepository(),
 		rdb:              redispkg.Client,
 		ctx:              context.Background(),
 	}
@@ -77,6 +84,14 @@ func (s *TaskService) ClaimTasks(reviewerID int, count int) ([]models.ReviewTask
 	_, err = pipe.Exec(s.ctx)
 	if err != nil {
 		log.Printf("Redis error when claiming tasks: %v", err)
+		taskIDs := make([]int, len(tasks))
+		for i, task := range tasks {
+			taskIDs[i] = task.ID
+		}
+		if _, resetErr := s.taskRepo.ReturnTasks(taskIDs, reviewerID); resetErr != nil {
+			log.Printf("Failed to rollback claimed tasks after Redis error: %v", resetErr)
+		}
+		return nil, errors.New("failed to claim tasks, please retry")
 	}
 
 	return tasks, nil
@@ -89,12 +104,31 @@ func (s *TaskService) GetMyTasks(reviewerID int) ([]models.ReviewTask, error) {
 
 // SubmitReview submits a review result
 func (s *TaskService) SubmitReview(reviewerID int, req models.SubmitReviewRequest) error {
-	// Complete the task
-	if err := s.taskRepo.CompleteTask(req.TaskID, reviewerID); err != nil {
-		return errors.New("task not found or already completed")
+	if err := validateTags(s.tagRepo, "comment", req.Tags); err != nil {
+		return err
 	}
 
-	// Create review result
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	commentID, err := s.taskRepo.GetCommentIDTx(tx, req.TaskID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("task not found")
+		}
+		return err
+	}
+
+	if err := s.taskRepo.CompleteTaskTx(tx, req.TaskID, reviewerID); err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New("task not found or already completed")
+		}
+		return err
+	}
+
 	result := &models.ReviewResult{
 		TaskID:     req.TaskID,
 		ReviewerID: reviewerID,
@@ -103,57 +137,70 @@ func (s *TaskService) SubmitReview(reviewerID int, req models.SubmitReviewReques
 		Reason:     req.Reason,
 	}
 
-	if err := s.taskRepo.CreateReviewResult(result); err != nil {
+	createdResult, err := s.taskRepo.CreateReviewResultTx(tx, result)
+	if err != nil {
 		return err
 	}
 
-	// If first review is not approved, create second review task
-	if !req.IsApproved {
-		// Get the comment ID from the task
-		tasks, err := s.taskRepo.FindTasksWithComments([]int{req.TaskID})
+	var createdSecondReviewTask bool
+	if req.IsApproved {
+		if err := s.commentRepo.UpdateModerationStatusTx(tx, commentID, "approved"); err != nil {
+			return err
+		}
+	} else {
+		if err := s.commentRepo.UpdateModerationStatusTx(tx, commentID, "pending_second_review"); err != nil {
+			return err
+		}
+		createdSecondReviewTask, err = s.secondReviewRepo.CreateSecondReviewTaskTx(tx, result.ID, commentID)
 		if err != nil {
-			log.Printf("Error getting comment ID for second review task: %v", err)
-		} else if len(tasks) > 0 {
-			commentID := tasks[0].CommentID
-
-			// Create second review task
-			if err := s.secondReviewRepo.CreateSecondReviewTask(result.ID, commentID); err != nil {
-				log.Printf("Error creating second review task: %v", err)
-			} else {
-				// Push to Redis second review queue
-				queueKey := "review:queue:second"
-				if err := s.rdb.LPush(s.ctx, queueKey, commentID).Err(); err != nil {
-					log.Printf("Redis error pushing to second review queue: %v", err)
-				}
-			}
+			return err
 		}
 	}
 
-	// Remove from Redis
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	if err := s.diffRepo.CreateTaskIfMismatchWithHumanResult(req.TaskID, result.ID, result.IsApproved); err != nil {
+		log.Printf("Error creating AI diff task for review task %d: %v", req.TaskID, err)
+	}
+
+	if createdSecondReviewTask {
+		queueKey := "review:queue:second"
+		if err := s.rdb.LPush(s.ctx, queueKey, commentID).Err(); err != nil {
+			log.Printf("Redis error pushing to second review queue: %v", err)
+		}
+	}
+
 	userClaimedKey := fmt.Sprintf("task:claimed:%d", reviewerID)
 	lockKey := fmt.Sprintf("task:lock:%d", req.TaskID)
 
 	pipe := s.rdb.Pipeline()
 	pipe.SRem(s.ctx, userClaimedKey, req.TaskID)
 	pipe.Del(s.ctx, lockKey)
-	_, err := pipe.Exec(s.ctx)
+	_, err = pipe.Exec(s.ctx)
 
 	if err != nil {
 		log.Printf("Redis error when submitting review: %v", err)
 	}
 
-	// Update statistics in Redis
-	s.updateStats(result)
+	if createdResult {
+		s.updateStats(result)
+	}
 
 	return nil
 }
 
 // SubmitBatchReviews submits multiple reviews at once
 func (s *TaskService) SubmitBatchReviews(reviewerID int, reviews []models.SubmitReviewRequest) error {
+	var failed []string
 	for _, review := range reviews {
 		if err := s.SubmitReview(reviewerID, review); err != nil {
-			return err
+			failed = append(failed, fmt.Sprintf("task %d: %v", review.TaskID, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to submit %d reviews: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return nil
 }
@@ -228,6 +275,7 @@ func (s *TaskService) ReturnTasks(reviewerID int, taskIDs []int) (int, error) {
 	_, err = pipe.Exec(s.ctx)
 	if err != nil {
 		log.Printf("Redis error when returning tasks: %v", err)
+		return returnedCount, errors.New("tasks returned but failed to update cache")
 	}
 
 	return returnedCount, nil

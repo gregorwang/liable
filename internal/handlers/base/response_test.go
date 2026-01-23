@@ -67,6 +67,12 @@ func TestRespondError(t *testing.T) {
 			if resp.Code != tt.code {
 				t.Errorf("expected error code %q, got %q", tt.code, resp.Code)
 			}
+			if resp.HTTPStatus != tt.status {
+				t.Errorf("expected http status %d, got %d", tt.status, resp.HTTPStatus)
+			}
+			if resp.ErrorType == "" {
+				t.Error("expected error_type to be populated")
+			}
 		})
 	}
 }
@@ -215,10 +221,5 @@ func TestErrorResponseFormat(t *testing.T) {
 
 	if _, ok := resp["code"]; !ok {
 		t.Error("response should contain 'code' field")
-	}
-
-	// 验证没有多余字段
-	if len(resp) != 2 {
-		t.Errorf("expected 2 fields in response, got %d", len(resp))
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -109,7 +110,8 @@ func (s *VideoSecondReviewService) SubmitSecondReview(reviewerID int, req models
 		Reason:            req.Reason,
 	}
 
-	if err := s.secondReviewRepo.CreateSecondReviewResult(result); err != nil {
+	createdResult, err := s.secondReviewRepo.CreateSecondReviewResult(result)
+	if err != nil {
 		return err
 	}
 
@@ -137,17 +139,23 @@ func (s *VideoSecondReviewService) SubmitSecondReview(reviewerID int, req models
 	}
 
 	// Update statistics in Redis
-	s.updateVideoSecondReviewStats(result)
+	if createdResult {
+		s.updateVideoSecondReviewStats(result)
+	}
 
 	return nil
 }
 
 // SubmitBatchSecondReviews submits multiple second reviews at once
 func (s *VideoSecondReviewService) SubmitBatchSecondReviews(reviewerID int, reviews []models.SubmitVideoSecondReviewRequest) error {
+	var failed []string
 	for _, review := range reviews {
 		if err := s.SubmitSecondReview(reviewerID, review); err != nil {
-			return err
+			failed = append(failed, fmt.Sprintf("task %d: %v", review.TaskID, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to submit %d video second reviews: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return nil
 }

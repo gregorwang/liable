@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"comment-review-platform/internal/middleware"
 	"comment-review-platform/internal/models"
 	"comment-review-platform/internal/services"
 	"net/http"
@@ -65,6 +66,43 @@ func (h *AdminHandler) ApproveUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User status updated successfully"})
+}
+
+// CreateUser creates a new user
+func (h *AdminHandler) CreateUser(c *gin.Context) {
+	var req models.CreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	user, err := h.adminService.CreateUser(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"user": user})
+}
+
+// DeleteUser deletes a user by ID
+func (h *AdminHandler) DeleteUser(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+	if userID == middleware.GetUserID(c) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除当前登录用户"})
+		return
+	}
+
+	if err := h.adminService.DeleteUser(userID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
 }
 
 // GetOverviewStats retrieves overall statistics with optional cache refresh

@@ -4,7 +4,6 @@ import (
 	"comment-review-platform/internal/models"
 	"comment-review-platform/pkg/database"
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -20,13 +19,44 @@ func NewSecondReviewRepository() *SecondReviewRepository {
 }
 
 // CreateSecondReviewTask creates a new second review task
-func (r *SecondReviewRepository) CreateSecondReviewTask(firstReviewResultID int, commentID int64) error {
+func (r *SecondReviewRepository) CreateSecondReviewTask(firstReviewResultID int, commentID int64) (bool, error) {
+	return createSecondReviewTask(r.db, firstReviewResultID, commentID)
+}
+
+// CreateSecondReviewTaskTx creates a new second review task within a transaction
+func (r *SecondReviewRepository) CreateSecondReviewTaskTx(tx *sql.Tx, firstReviewResultID int, commentID int64) (bool, error) {
+	return createSecondReviewTask(tx, firstReviewResultID, commentID)
+}
+
+type secondReviewExecutor interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+func createSecondReviewTask(db secondReviewExecutor, firstReviewResultID int, commentID int64) (bool, error) {
 	query := `
 		INSERT INTO second_review_tasks (first_review_result_id, comment_id, status, created_at)
 		VALUES ($1, $2, 'pending', NOW())
+		ON CONFLICT (first_review_result_id) DO NOTHING
 	`
-	_, err := r.db.Exec(query, firstReviewResultID, commentID)
-	return err
+	result, err := db.Exec(query, firstReviewResultID, commentID)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rowsAffected > 0, nil
+}
+
+// GetCommentIDByTaskID retrieves the comment ID for a second review task.
+func (r *SecondReviewRepository) GetCommentIDByTaskID(taskID int) (int64, error) {
+	query := `SELECT comment_id FROM second_review_tasks WHERE id = $1`
+	var commentID int64
+	if err := r.db.QueryRow(query, taskID).Scan(&commentID); err != nil {
+		return 0, err
+	}
+	return commentID, nil
 }
 
 // ClaimSecondReviewTasks claims pending second review tasks for a reviewer
@@ -205,8 +235,8 @@ func (r *SecondReviewRepository) GetMySecondReviewTasks(reviewerID int) ([]model
 func (r *SecondReviewRepository) CompleteSecondReviewTask(taskID, reviewerID int) error {
 	query := `
 		UPDATE second_review_tasks
-		SET status = 'completed', completed_at = NOW()
-		WHERE id = $1 AND reviewer_id = $2 AND status = 'in_progress'
+		SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+		WHERE id = $1 AND reviewer_id = $2 AND status IN ('in_progress', 'completed')
 	`
 	result, err := r.db.Exec(query, taskID, reviewerID)
 	if err != nil {
@@ -226,14 +256,41 @@ func (r *SecondReviewRepository) CompleteSecondReviewTask(taskID, reviewerID int
 }
 
 // CreateSecondReviewResult creates a second review result
-func (r *SecondReviewRepository) CreateSecondReviewResult(result *models.SecondReviewResult) error {
+func (r *SecondReviewRepository) CreateSecondReviewResult(result *models.SecondReviewResult) (bool, error) {
 	query := `
 		INSERT INTO second_review_results (second_task_id, reviewer_id, is_approved, tags, reason, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (second_task_id) DO NOTHING
 		RETURNING id, created_at
 	`
-	return r.db.QueryRow(query, result.SecondTaskID, result.ReviewerID, result.IsApproved,
+	err := r.db.QueryRow(query, result.SecondTaskID, result.ReviewerID, result.IsApproved,
 		pq.Array(result.Tags), result.Reason).Scan(&result.ID, &result.CreatedAt)
+	if err == nil {
+		return true, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+
+	existingQuery := `
+		SELECT id, reviewer_id, is_approved, tags, reason, created_at
+		FROM second_review_results
+		WHERE second_task_id = $1
+	`
+	var tags []string
+	err = r.db.QueryRow(existingQuery, result.SecondTaskID).Scan(
+		&result.ID,
+		&result.ReviewerID,
+		&result.IsApproved,
+		pq.Array(&tags),
+		&result.Reason,
+		&result.CreatedAt,
+	)
+	if err != nil {
+		return false, err
+	}
+	result.Tags = tags
+	return false, nil
 }
 
 // ReturnSecondReviewTasks returns multiple second review tasks back to pending status for a specific reviewer
@@ -294,146 +351,11 @@ func (r *SecondReviewRepository) ResetSecondReviewTask(taskID int) error {
 
 // SearchSecondReviewTasks searches second review tasks with filters and pagination
 func (r *SecondReviewRepository) SearchSecondReviewTasks(req models.SearchTasksRequest) ([]models.TaskSearchResult, int, error) {
-	// Build WHERE conditions
-	var conditions []string
-	var args []interface{}
-	argPos := 1
-
-	// Only search completed second review tasks
-	conditions = append(conditions, "srt.status = 'completed'")
-
-	// Filter by comment_id
-	if req.CommentID != nil {
-		conditions = append(conditions, fmt.Sprintf("srt.comment_id = $%d", argPos))
-		args = append(args, *req.CommentID)
-		argPos++
+	if strings.TrimSpace(req.QueueName) == "" {
+		req.QueueName = "comment_second_review"
 	}
 
-	// Filter by second reviewer username
-	if req.ReviewerRTX != "" {
-		conditions = append(conditions, fmt.Sprintf("u2.username = $%d", argPos))
-		args = append(args, req.ReviewerRTX)
-		argPos++
-	}
-
-	// Filter by tag_ids (OR condition for tags) - search in both first and second review tags
-	if req.TagIDs != "" {
-		tagIDs := strings.Split(req.TagIDs, ",")
-		conditions = append(conditions, fmt.Sprintf("(rr.tags && $%d OR srr.tags && $%d)", argPos, argPos))
-		args = append(args, pq.Array(tagIDs))
-		argPos++
-	}
-
-	// Filter by review time range
-	if req.ReviewStartTime != nil {
-		conditions = append(conditions, fmt.Sprintf("srt.completed_at >= $%d", argPos))
-		args = append(args, *req.ReviewStartTime)
-		argPos++
-	}
-
-	if req.ReviewEndTime != nil {
-		conditions = append(conditions, fmt.Sprintf("srt.completed_at <= $%d", argPos))
-		args = append(args, *req.ReviewEndTime)
-		argPos++
-	}
-
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = "WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	// Count total records
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(DISTINCT srt.id)
-		FROM second_review_tasks srt
-		LEFT JOIN second_review_results srr ON srt.id = srr.second_task_id
-		LEFT JOIN users u2 ON srt.reviewer_id = u2.id
-		LEFT JOIN review_results rr ON srt.first_review_result_id = rr.id
-		LEFT JOIN users u1 ON rr.reviewer_id = u1.id
-		%s
-	`, whereClause)
-
-	var total int
-	err := r.db.QueryRow(countQuery, args...).Scan(&total)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Query with pagination
-	offset := (req.Page - 1) * req.PageSize
-	dataQuery := fmt.Sprintf(`
-		SELECT 
-			srt.id, srt.comment_id, c.text as comment_text,
-			srt.reviewer_id, u2.username,
-			srt.status, srt.claimed_at, srt.completed_at, srt.created_at,
-			-- First review info
-			rr.id as first_review_id, rr.is_approved as first_is_approved, 
-			rr.tags as first_tags, rr.reason as first_reason, rr.created_at as first_reviewed_at,
-			rr.reviewer_id as first_reviewer_id, u1.username as first_username,
-			-- Second review info
-			srr.id as second_review_id, srr.is_approved as second_is_approved,
-			srr.tags as second_tags, srr.reason as second_reason, srr.created_at as second_reviewed_at
-		FROM second_review_tasks srt
-		LEFT JOIN second_review_results srr ON srt.id = srr.second_task_id
-		LEFT JOIN users u2 ON srt.reviewer_id = u2.id
-		LEFT JOIN review_results rr ON srt.first_review_result_id = rr.id
-		LEFT JOIN users u1 ON rr.reviewer_id = u1.id
-		LEFT JOIN comment c ON srt.comment_id = c.id
-		%s
-		ORDER BY srt.completed_at DESC
-		LIMIT $%d OFFSET $%d
-	`, whereClause, argPos, argPos+1)
-
-	args = append(args, req.PageSize, offset)
-	rows, err := r.db.Query(dataQuery, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	results := []models.TaskSearchResult{}
-	for rows.Next() {
-		var result models.TaskSearchResult
-		var firstTags, secondTags []string
-		var firstUsername, secondUsername sql.NullString
-		var firstReviewerID sql.NullInt64
-
-		err := rows.Scan(
-			&result.ID, &result.CommentID, &result.CommentText,
-			&result.ReviewerID, &secondUsername,
-			&result.Status, &result.ClaimedAt, &result.CompletedAt, &result.CreatedAt,
-			// First review info
-			&result.ReviewID, &result.IsApproved, pq.Array(&firstTags), &result.Reason, &result.ReviewedAt,
-			&firstReviewerID, &firstUsername,
-			// Second review info
-			&result.SecondReviewID, &result.SecondIsApproved,
-			pq.Array(&secondTags), &result.SecondReason, &result.SecondReviewedAt,
-		)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		// Set queue type
-		result.QueueType = "second"
-
-		// Set first review info
-		if firstReviewerID.Valid {
-			firstID := int(firstReviewerID.Int64)
-			result.FirstReviewerID = &firstID
-		}
-		if firstUsername.Valid {
-			result.FirstUsername = &firstUsername.String
-		}
-		result.Tags = firstTags
-
-		// Set second review info
-		result.SecondTags = secondTags
-		if secondUsername.Valid {
-			result.SecondUsername = &secondUsername.String
-		}
-
-		results = append(results, result)
-	}
-
-	return results, total, nil
+	taskRepo := NewTaskRepository()
+	return taskRepo.SearchTasksUnified(req)
 }
+

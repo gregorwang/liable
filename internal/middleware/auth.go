@@ -2,12 +2,26 @@ package middleware
 
 import (
 	"comment-review-platform/internal/config"
+	"comment-review-platform/internal/repository"
 	jwtpkg "comment-review-platform/pkg/jwt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+var (
+	userRepo     *repository.UserRepository
+	userRepoOnce sync.Once
+)
+
+func getUserRepo() *repository.UserRepository {
+	userRepoOnce.Do(func() {
+		userRepo = repository.NewUserRepository()
+	})
+	return userRepo
+}
 
 // AuthMiddleware validates JWT token
 func AuthMiddleware() gin.HandlerFunc {
@@ -31,6 +45,18 @@ func AuthMiddleware() gin.HandlerFunc {
 		claims, err := jwtpkg.ValidateToken(token, config.AppConfig.JWTSecret)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		user, err := getUserRepo().FindByID(claims.UserID)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+			c.Abort()
+			return
+		}
+		if user.Status != "approved" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Account not active"})
 			c.Abort()
 			return
 		}

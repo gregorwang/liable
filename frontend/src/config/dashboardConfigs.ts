@@ -38,36 +38,6 @@ export const secondReviewDashboardConfig: DashboardConfig = {
 }
 
 /**
- * 视频一审工作台配置
- */
-export const videoFirstReviewDashboardConfig: DashboardConfig = {
-    title: '抖音短视频一审工作台',
-    showSearch: true,
-    showBatchSubmit: true,
-    claimButtonText: '领取新任务',
-    emptyText: '暂无待审核任务，点击「领取新任务」开始工作',
-    stats: [
-        { key: 'pending_tasks', label: '待审核任务' },
-        { key: 'today_completed', label: '今日已完成' }
-    ]
-}
-
-/**
- * 视频二审工作台配置
- */
-export const videoSecondReviewDashboardConfig: DashboardConfig = {
-    title: '抖音短视频二审工作台',
-    showSearch: true,
-    showBatchSubmit: true,
-    claimButtonText: '领取二审任务',
-    emptyText: '暂无待二审任务，点击「领取二审任务」开始工作',
-    stats: [
-        { key: 'pending_tasks', label: '待二审任务' },
-        { key: 'today_completed', label: '今日已完成' }
-    ]
-}
-
-/**
  * 创建自定义 Dashboard 配置
  */
 export function createDashboardConfig(

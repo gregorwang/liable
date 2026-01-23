@@ -8,17 +8,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
 type SecondReviewService struct {
 	secondReviewRepo *repository.SecondReviewRepository
+	tagRepo          *repository.TagRepository
+	commentRepo      *repository.CommentRepository
 	base             *base.BaseTaskService
 }
 
 func NewSecondReviewService() *SecondReviewService {
 	return &SecondReviewService{
 		secondReviewRepo: repository.NewSecondReviewRepository(),
+		tagRepo:          repository.NewTagRepository(),
+		commentRepo:      repository.NewCommentRepository(),
 		base:             base.NewBaseTaskService(base.SecondReviewTaskServiceConfig(), redispkg.Client),
 	}
 }
@@ -57,6 +62,10 @@ func (s *SecondReviewService) ClaimSecondReviewTasks(reviewerID int, count int) 
 	}
 	if err := s.base.TrackClaimedTasks(reviewerID, taskIDs); err != nil {
 		log.Printf("Redis error when claiming second review tasks: %v", err)
+		if _, resetErr := s.secondReviewRepo.ReturnSecondReviewTasks(taskIDs, reviewerID); resetErr != nil {
+			log.Printf("Failed to rollback second review tasks after Redis error: %v", resetErr)
+		}
+		return nil, errors.New("failed to claim tasks, please retry")
 	}
 
 	return tasks, nil
@@ -69,6 +78,10 @@ func (s *SecondReviewService) GetMySecondReviewTasks(reviewerID int) ([]models.S
 
 // SubmitSecondReview submits a second review result
 func (s *SecondReviewService) SubmitSecondReview(reviewerID int, req models.SubmitSecondReviewRequest) error {
+	if err := validateTags(s.tagRepo, "comment", req.Tags); err != nil {
+		return err
+	}
+
 	// Complete the task
 	if err := s.secondReviewRepo.CompleteSecondReviewTask(req.TaskID, reviewerID); err != nil {
 		return errors.New("second review task not found or already completed")
@@ -83,7 +96,20 @@ func (s *SecondReviewService) SubmitSecondReview(reviewerID int, req models.Subm
 		Reason:       req.Reason,
 	}
 
-	if err := s.secondReviewRepo.CreateSecondReviewResult(result); err != nil {
+	createdResult, err := s.secondReviewRepo.CreateSecondReviewResult(result)
+	if err != nil {
+		return err
+	}
+
+	commentID, err := s.secondReviewRepo.GetCommentIDByTaskID(req.TaskID)
+	if err != nil {
+		return err
+	}
+	status := "rejected"
+	if result.IsApproved {
+		status = "approved"
+	}
+	if err := s.commentRepo.UpdateModerationStatus(commentID, status); err != nil {
 		return err
 	}
 
@@ -91,17 +117,23 @@ func (s *SecondReviewService) SubmitSecondReview(reviewerID int, req models.Subm
 	s.base.CleanupSingleTask(reviewerID, req.TaskID)
 
 	// Update statistics in Redis
-	s.updateSecondReviewStats(result)
+	if createdResult {
+		s.updateSecondReviewStats(result)
+	}
 
 	return nil
 }
 
 // SubmitBatchSecondReviews submits multiple second reviews at once
 func (s *SecondReviewService) SubmitBatchSecondReviews(reviewerID int, reviews []models.SubmitSecondReviewRequest) error {
+	var failed []string
 	for _, review := range reviews {
 		if err := s.SubmitSecondReview(reviewerID, review); err != nil {
-			return err
+			failed = append(failed, fmt.Sprintf("task %d: %v", review.TaskID, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to submit %d second reviews: %s", len(failed), strings.Join(failed, "; "))
 	}
 	return nil
 }

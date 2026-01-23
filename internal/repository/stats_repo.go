@@ -19,175 +19,257 @@ func NewStatsRepository() *StatsRepository {
 func (r *StatsRepository) GetOverviewStats() (*models.StatsOverview, error) {
 	stats := &models.StatsOverview{}
 
-	// Get comment first review statistics
-	commentFirstQuery := `
+	query := `
+		WITH
+		review_tasks_stats AS (
+			SELECT
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+				COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress
+			FROM review_tasks
+		),
+		review_results_stats AS (
+			SELECT
+				COUNT(*) FILTER (WHERE is_approved = true) AS approved,
+				COUNT(*) FILTER (WHERE is_approved = false) AS rejected
+			FROM review_results
+		),
+		second_review_tasks_stats AS (
+			SELECT
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+				COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress
+			FROM second_review_tasks
+		),
+		second_review_results_stats AS (
+			SELECT
+				COUNT(*) FILTER (WHERE is_approved = true) AS approved,
+				COUNT(*) FILTER (WHERE is_approved = false) AS rejected
+			FROM second_review_results
+		),
+		video_first_tasks_stats AS (
+			SELECT
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+				COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress
+			FROM video_first_review_tasks
+		),
+		video_first_results_stats AS (
+			SELECT
+				COUNT(*) FILTER (WHERE is_approved = true) AS approved,
+				COUNT(*) FILTER (WHERE is_approved = false) AS rejected,
+				COALESCE(AVG(overall_score), 0) AS avg_score
+			FROM video_first_review_results
+		),
+		video_second_tasks_stats AS (
+			SELECT
+				COUNT(*) AS total,
+				COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+				COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+				COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress
+			FROM video_second_review_tasks
+		),
+		video_second_results_stats AS (
+			SELECT
+				COUNT(*) FILTER (WHERE is_approved = true) AS approved,
+				COUNT(*) FILTER (WHERE is_approved = false) AS rejected,
+				COALESCE(AVG(overall_score), 0) AS avg_score
+			FROM video_second_review_results
+		),
+		quality_check_stats AS (
+			SELECT
+				COUNT(*) AS total_quality_checks,
+				COUNT(*) FILTER (WHERE is_passed = true) AS passed_quality_checks,
+				COUNT(*) FILTER (WHERE is_passed = false) AS failed_quality_checks
+			FROM quality_check_results
+		),
+		reviewer_stats AS (
+			SELECT
+				(SELECT COUNT(*) FROM users WHERE role = 'reviewer' AND status = 'approved') AS total_reviewers,
+				(SELECT COUNT(DISTINCT reviewer_id) FROM (
+					SELECT reviewer_id FROM review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
+					UNION
+					SELECT reviewer_id FROM second_review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
+					UNION
+					SELECT reviewer_id FROM quality_check_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
+					UNION
+					SELECT reviewer_id FROM ai_human_diff_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
+					UNION
+					SELECT reviewer_id FROM video_first_review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
+					UNION
+					SELECT reviewer_id FROM video_second_review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
+				) AS all_reviewers) AS active_reviewers
+		)
 		SELECT
-			COUNT(*) as total,
-			COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-			COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-			COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress
-		FROM review_tasks
+			rts.total, rts.completed, rts.pending, rts.in_progress,
+			rrs.approved, rrs.rejected,
+			srt.total, srt.completed, srt.pending, srt.in_progress,
+			srr.approved, srr.rejected,
+			vft.total, vft.completed, vft.pending, vft.in_progress,
+			vfr.approved, vfr.rejected, vfr.avg_score,
+			vst.total, vst.completed, vst.pending, vst.in_progress,
+			vsr.approved, vsr.rejected, vsr.avg_score,
+			rs.total_reviewers, rs.active_reviewers,
+			qcs.total_quality_checks, qcs.passed_quality_checks, qcs.failed_quality_checks,
+			srt.total, srt.completed
+		FROM review_tasks_stats rts
+		CROSS JOIN review_results_stats rrs
+		CROSS JOIN second_review_tasks_stats srt
+		CROSS JOIN second_review_results_stats srr
+		CROSS JOIN video_first_tasks_stats vft
+		CROSS JOIN video_first_results_stats vfr
+		CROSS JOIN video_second_tasks_stats vst
+		CROSS JOIN video_second_results_stats vsr
+		CROSS JOIN reviewer_stats rs
+		CROSS JOIN quality_check_stats qcs
 	`
-	err := r.db.QueryRow(commentFirstQuery).Scan(
-		&stats.CommentReviewStats.FirstReview.TotalTasks,
-		&stats.CommentReviewStats.FirstReview.CompletedTasks,
-		&stats.CommentReviewStats.FirstReview.PendingTasks,
-		&stats.CommentReviewStats.FirstReview.InProgressTasks,
+
+	var (
+		commentFirstTotal       int
+		commentFirstCompleted   int
+		commentFirstPending     int
+		commentFirstInProgress  int
+		commentFirstApproved    int
+		commentFirstRejected    int
+		commentSecondTotal      int
+		commentSecondCompleted  int
+		commentSecondPending    int
+		commentSecondInProgress int
+		commentSecondApproved   int
+		commentSecondRejected   int
+		videoFirstTotal         int
+		videoFirstCompleted     int
+		videoFirstPending       int
+		videoFirstInProgress    int
+		videoFirstApproved      int
+		videoFirstRejected      int
+		videoFirstAvgScore      float64
+		videoSecondTotal        int
+		videoSecondCompleted    int
+		videoSecondPending      int
+		videoSecondInProgress   int
+		videoSecondApproved     int
+		videoSecondRejected     int
+		videoSecondAvgScore     float64
+		totalReviewers          int
+		activeReviewers         int
+		totalQualityChecks      int
+		passedQualityChecks     int
+		failedQualityChecks     int
+		secondReviewTasks       int
+		secondReviewCompleted   int
+	)
+
+	err := r.db.QueryRow(query).Scan(
+		&commentFirstTotal,
+		&commentFirstCompleted,
+		&commentFirstPending,
+		&commentFirstInProgress,
+		&commentFirstApproved,
+		&commentFirstRejected,
+		&commentSecondTotal,
+		&commentSecondCompleted,
+		&commentSecondPending,
+		&commentSecondInProgress,
+		&commentSecondApproved,
+		&commentSecondRejected,
+		&videoFirstTotal,
+		&videoFirstCompleted,
+		&videoFirstPending,
+		&videoFirstInProgress,
+		&videoFirstApproved,
+		&videoFirstRejected,
+		&videoFirstAvgScore,
+		&videoSecondTotal,
+		&videoSecondCompleted,
+		&videoSecondPending,
+		&videoSecondInProgress,
+		&videoSecondApproved,
+		&videoSecondRejected,
+		&videoSecondAvgScore,
+		&totalReviewers,
+		&activeReviewers,
+		&totalQualityChecks,
+		&passedQualityChecks,
+		&failedQualityChecks,
+		&secondReviewTasks,
+		&secondReviewCompleted,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get comment first review approval counts
-	commentFirstApprovalQuery := `
-		SELECT
-			COUNT(CASE WHEN is_approved = true THEN 1 END) as approved,
-			COUNT(CASE WHEN is_approved = false THEN 1 END) as rejected
-		FROM review_results
-	`
-	err = r.db.QueryRow(commentFirstApprovalQuery).Scan(
-		&stats.CommentReviewStats.FirstReview.ApprovedCount,
-		&stats.CommentReviewStats.FirstReview.RejectedCount,
-	)
-	if err != nil {
-		return nil, err
-	}
+	stats.CommentReviewStats.FirstReview.TotalTasks = commentFirstTotal
+	stats.CommentReviewStats.FirstReview.CompletedTasks = commentFirstCompleted
+	stats.CommentReviewStats.FirstReview.PendingTasks = commentFirstPending
+	stats.CommentReviewStats.FirstReview.InProgressTasks = commentFirstInProgress
+	stats.CommentReviewStats.FirstReview.ApprovedCount = commentFirstApproved
+	stats.CommentReviewStats.FirstReview.RejectedCount = commentFirstRejected
 
-	// Calculate comment first review approval rate
+	stats.CommentReviewStats.SecondReview.TotalTasks = commentSecondTotal
+	stats.CommentReviewStats.SecondReview.CompletedTasks = commentSecondCompleted
+	stats.CommentReviewStats.SecondReview.PendingTasks = commentSecondPending
+	stats.CommentReviewStats.SecondReview.InProgressTasks = commentSecondInProgress
+	stats.CommentReviewStats.SecondReview.ApprovedCount = commentSecondApproved
+	stats.CommentReviewStats.SecondReview.RejectedCount = commentSecondRejected
+
+	stats.VideoReviewStats.FirstReview.TotalTasks = videoFirstTotal
+	stats.VideoReviewStats.FirstReview.CompletedTasks = videoFirstCompleted
+	stats.VideoReviewStats.FirstReview.PendingTasks = videoFirstPending
+	stats.VideoReviewStats.FirstReview.InProgressTasks = videoFirstInProgress
+	stats.VideoReviewStats.FirstReview.ApprovedCount = videoFirstApproved
+	stats.VideoReviewStats.FirstReview.RejectedCount = videoFirstRejected
+	stats.VideoReviewStats.FirstReview.AvgOverallScore = videoFirstAvgScore
+
+	stats.VideoReviewStats.SecondReview.TotalTasks = videoSecondTotal
+	stats.VideoReviewStats.SecondReview.CompletedTasks = videoSecondCompleted
+	stats.VideoReviewStats.SecondReview.PendingTasks = videoSecondPending
+	stats.VideoReviewStats.SecondReview.InProgressTasks = videoSecondInProgress
+	stats.VideoReviewStats.SecondReview.ApprovedCount = videoSecondApproved
+	stats.VideoReviewStats.SecondReview.RejectedCount = videoSecondRejected
+	stats.VideoReviewStats.SecondReview.AvgOverallScore = videoSecondAvgScore
+
+	stats.TotalReviewers = totalReviewers
+	stats.ActiveReviewers = activeReviewers
+
+	stats.QualityMetrics.TotalQualityChecks = totalQualityChecks
+	stats.QualityMetrics.PassedQualityChecks = passedQualityChecks
+	stats.QualityMetrics.FailedQualityChecks = failedQualityChecks
+	stats.QualityMetrics.SecondReviewTasks = secondReviewTasks
+	stats.QualityMetrics.SecondReviewCompleted = secondReviewCompleted
+
 	if stats.CommentReviewStats.FirstReview.CompletedTasks > 0 {
 		stats.CommentReviewStats.FirstReview.ApprovalRate =
 			float64(stats.CommentReviewStats.FirstReview.ApprovedCount) /
 				float64(stats.CommentReviewStats.FirstReview.CompletedTasks) * 100
 	}
-
-	// Get comment second review statistics
-	commentSecondQuery := `
-		SELECT
-			COUNT(*) as total,
-			COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-			COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-			COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress
-		FROM second_review_tasks
-	`
-	err = r.db.QueryRow(commentSecondQuery).Scan(
-		&stats.CommentReviewStats.SecondReview.TotalTasks,
-		&stats.CommentReviewStats.SecondReview.CompletedTasks,
-		&stats.CommentReviewStats.SecondReview.PendingTasks,
-		&stats.CommentReviewStats.SecondReview.InProgressTasks,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get comment second review approval counts
-	commentSecondApprovalQuery := `
-		SELECT
-			COUNT(CASE WHEN is_approved = true THEN 1 END) as approved,
-			COUNT(CASE WHEN is_approved = false THEN 1 END) as rejected
-		FROM second_review_results
-	`
-	err = r.db.QueryRow(commentSecondApprovalQuery).Scan(
-		&stats.CommentReviewStats.SecondReview.ApprovedCount,
-		&stats.CommentReviewStats.SecondReview.RejectedCount,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate comment second review approval rate
 	if stats.CommentReviewStats.SecondReview.CompletedTasks > 0 {
 		stats.CommentReviewStats.SecondReview.ApprovalRate =
 			float64(stats.CommentReviewStats.SecondReview.ApprovedCount) /
 				float64(stats.CommentReviewStats.SecondReview.CompletedTasks) * 100
 	}
-
-	// Get video first review statistics
-	videoFirstQuery := `
-		SELECT
-			COUNT(*) as total,
-			COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-			COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-			COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress
-		FROM video_first_review_tasks
-	`
-	err = r.db.QueryRow(videoFirstQuery).Scan(
-		&stats.VideoReviewStats.FirstReview.TotalTasks,
-		&stats.VideoReviewStats.FirstReview.CompletedTasks,
-		&stats.VideoReviewStats.FirstReview.PendingTasks,
-		&stats.VideoReviewStats.FirstReview.InProgressTasks,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get video first review approval counts and average score
-	videoFirstApprovalQuery := `
-		SELECT
-			COUNT(CASE WHEN is_approved = true THEN 1 END) as approved,
-			COUNT(CASE WHEN is_approved = false THEN 1 END) as rejected,
-			COALESCE(AVG(overall_score), 0) as avg_score
-		FROM video_first_review_results
-	`
-	err = r.db.QueryRow(videoFirstApprovalQuery).Scan(
-		&stats.VideoReviewStats.FirstReview.ApprovedCount,
-		&stats.VideoReviewStats.FirstReview.RejectedCount,
-		&stats.VideoReviewStats.FirstReview.AvgOverallScore,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate video first review approval rate
 	if stats.VideoReviewStats.FirstReview.CompletedTasks > 0 {
 		stats.VideoReviewStats.FirstReview.ApprovalRate =
 			float64(stats.VideoReviewStats.FirstReview.ApprovedCount) /
 				float64(stats.VideoReviewStats.FirstReview.CompletedTasks) * 100
 	}
-
-	// Get video second review statistics
-	videoSecondQuery := `
-		SELECT
-			COUNT(*) as total,
-			COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-			COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-			COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress
-		FROM video_second_review_tasks
-	`
-	err = r.db.QueryRow(videoSecondQuery).Scan(
-		&stats.VideoReviewStats.SecondReview.TotalTasks,
-		&stats.VideoReviewStats.SecondReview.CompletedTasks,
-		&stats.VideoReviewStats.SecondReview.PendingTasks,
-		&stats.VideoReviewStats.SecondReview.InProgressTasks,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get video second review approval counts and average score
-	videoSecondApprovalQuery := `
-		SELECT
-			COUNT(CASE WHEN is_approved = true THEN 1 END) as approved,
-			COUNT(CASE WHEN is_approved = false THEN 1 END) as rejected,
-			COALESCE(AVG(overall_score), 0) as avg_score
-		FROM video_second_review_results
-	`
-	err = r.db.QueryRow(videoSecondApprovalQuery).Scan(
-		&stats.VideoReviewStats.SecondReview.ApprovedCount,
-		&stats.VideoReviewStats.SecondReview.RejectedCount,
-		&stats.VideoReviewStats.SecondReview.AvgOverallScore,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate video second review approval rate
 	if stats.VideoReviewStats.SecondReview.CompletedTasks > 0 {
 		stats.VideoReviewStats.SecondReview.ApprovalRate =
 			float64(stats.VideoReviewStats.SecondReview.ApprovedCount) /
 				float64(stats.VideoReviewStats.SecondReview.CompletedTasks) * 100
 	}
+	if stats.QualityMetrics.TotalQualityChecks > 0 {
+		stats.QualityMetrics.QualityPassRate =
+			float64(stats.QualityMetrics.PassedQualityChecks) / float64(stats.QualityMetrics.TotalQualityChecks) * 100
+	}
+	if stats.QualityMetrics.SecondReviewTasks > 0 {
+		stats.QualityMetrics.SecondReviewRate =
+			float64(stats.QualityMetrics.SecondReviewCompleted) / float64(stats.QualityMetrics.SecondReviewTasks) * 100
+	}
 
-	// Set legacy fields for backward compatibility (use comment first review stats)
 	stats.TotalTasks = stats.CommentReviewStats.FirstReview.TotalTasks
 	stats.CompletedTasks = stats.CommentReviewStats.FirstReview.CompletedTasks
 	stats.PendingTasks = stats.CommentReviewStats.FirstReview.PendingTasks
@@ -196,38 +278,11 @@ func (r *StatsRepository) GetOverviewStats() (*models.StatsOverview, error) {
 	stats.RejectedCount = stats.CommentReviewStats.FirstReview.RejectedCount
 	stats.ApprovalRate = stats.CommentReviewStats.FirstReview.ApprovalRate
 
-	// Get reviewer counts (across all review types)
-	r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'reviewer' AND status = 'approved'`).Scan(&stats.TotalReviewers)
-
-	// Get active reviewers count (reviewers who have completed at least one task in any review type)
-	activeReviewersQuery := `
-		SELECT COUNT(DISTINCT reviewer_id) FROM (
-			SELECT reviewer_id FROM review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
-			UNION
-			SELECT reviewer_id FROM second_review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
-			UNION
-			SELECT reviewer_id FROM quality_check_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
-			UNION
-			SELECT reviewer_id FROM video_first_review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
-			UNION
-			SELECT reviewer_id FROM video_second_review_tasks WHERE status = 'completed' AND reviewer_id IS NOT NULL
-		) AS all_reviewers
-	`
-	r.db.QueryRow(activeReviewersQuery).Scan(&stats.ActiveReviewers)
-
-	// Get queue statistics
 	queueStats, err := r.getQueueStats()
 	if err != nil {
 		return nil, err
 	}
 	stats.QueueStats = queueStats
-
-	// Get quality metrics
-	qualityMetrics, err := r.getQualityMetrics()
-	if err != nil {
-		return nil, err
-	}
-	stats.QualityMetrics = *qualityMetrics
 
 	return stats, nil
 }
@@ -236,21 +291,22 @@ func (r *StatsRepository) GetOverviewStats() (*models.StatsOverview, error) {
 func (r *StatsRepository) GetTodayReviewStats() (*models.TodayReviewStats, error) {
 	stats := &models.TodayReviewStats{}
 
-	counts := []struct {
-		dest  *int
-		query string
-	}{
-		{&stats.Comment.FirstReview, `SELECT COUNT(*) FROM review_results WHERE DATE(created_at) = CURRENT_DATE`},
-		{&stats.Comment.SecondReview, `SELECT COUNT(*) FROM second_review_results WHERE DATE(created_at) = CURRENT_DATE`},
-		{&stats.Video.Queue, `SELECT COUNT(*) FROM video_queue_results WHERE DATE(created_at) = CURRENT_DATE`},
-		{&stats.Video.FirstReview, `SELECT COUNT(*) FROM video_first_review_results WHERE DATE(created_at) = CURRENT_DATE`},
-		{&stats.Video.SecondReview, `SELECT COUNT(*) FROM video_second_review_results WHERE DATE(created_at) = CURRENT_DATE`},
-	}
-
-	for _, c := range counts {
-		if err := r.db.QueryRow(c.query).Scan(c.dest); err != nil {
-			return nil, err
-		}
+	query := `
+		SELECT
+			(SELECT COUNT(*) FROM review_results WHERE created_at >= CURRENT_DATE AND created_at < CURRENT_DATE + INTERVAL '1 day') AS comment_first,
+			(SELECT COUNT(*) FROM second_review_results WHERE created_at >= CURRENT_DATE AND created_at < CURRENT_DATE + INTERVAL '1 day') AS comment_second,
+			(SELECT COUNT(*) FROM video_queue_results WHERE created_at >= CURRENT_DATE AND created_at < CURRENT_DATE + INTERVAL '1 day') AS video_queue,
+			(SELECT COUNT(*) FROM video_first_review_results WHERE created_at >= CURRENT_DATE AND created_at < CURRENT_DATE + INTERVAL '1 day') AS video_first,
+			(SELECT COUNT(*) FROM video_second_review_results WHERE created_at >= CURRENT_DATE AND created_at < CURRENT_DATE + INTERVAL '1 day') AS video_second
+	`
+	if err := r.db.QueryRow(query).Scan(
+		&stats.Comment.FirstReview,
+		&stats.Comment.SecondReview,
+		&stats.Video.Queue,
+		&stats.Video.FirstReview,
+		&stats.Video.SecondReview,
+	); err != nil {
+		return nil, err
 	}
 
 	stats.Comment.Total = stats.Comment.FirstReview + stats.Comment.SecondReview
@@ -690,6 +746,15 @@ func (r *StatsRepository) getQueueStats() ([]models.QueueStats, error) {
 
 			UNION ALL
 
+			-- AI vs human diff
+			SELECT
+				'ai_human_diff' as queue_name,
+				COUNT(CASE WHEN is_approved = true THEN 1 END) as approved_count,
+				COUNT(CASE WHEN is_approved = false THEN 1 END) as rejected_count
+			FROM ai_human_diff_results
+
+			UNION ALL
+
 			-- Quality check
 			SELECT
 				'quality_check' as queue_name,
@@ -762,53 +827,4 @@ func (r *StatsRepository) getQueueStats() ([]models.QueueStats, error) {
 	}
 
 	return queueStats, nil
-}
-
-// getQualityMetrics returns quality check metrics
-func (r *StatsRepository) getQualityMetrics() (*models.QualityMetrics, error) {
-	metrics := &models.QualityMetrics{}
-
-	// Get quality check statistics
-	query := `
-		SELECT 
-			COUNT(*) as total_quality_checks,
-			COUNT(CASE WHEN is_passed = true THEN 1 END) as passed_quality_checks,
-			COUNT(CASE WHEN is_passed = false THEN 1 END) as failed_quality_checks
-		FROM quality_check_results
-	`
-	err := r.db.QueryRow(query).Scan(
-		&metrics.TotalQualityChecks,
-		&metrics.PassedQualityChecks,
-		&metrics.FailedQualityChecks,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate quality pass rate
-	if metrics.TotalQualityChecks > 0 {
-		metrics.QualityPassRate = float64(metrics.PassedQualityChecks) / float64(metrics.TotalQualityChecks) * 100
-	}
-
-	// Get second review statistics
-	secondReviewQuery := `
-		SELECT 
-			COUNT(*) as second_review_tasks,
-			COUNT(CASE WHEN status = 'completed' THEN 1 END) as second_review_completed
-		FROM second_review_tasks
-	`
-	err = r.db.QueryRow(secondReviewQuery).Scan(
-		&metrics.SecondReviewTasks,
-		&metrics.SecondReviewCompleted,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calculate second review rate
-	if metrics.SecondReviewTasks > 0 {
-		metrics.SecondReviewRate = float64(metrics.SecondReviewCompleted) / float64(metrics.SecondReviewTasks) * 100
-	}
-
-	return metrics, nil
 }

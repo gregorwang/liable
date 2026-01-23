@@ -14,6 +14,7 @@
 | 004 | `004_add_email_verification.sql` | 2025-11 | 邮箱验证功能 | ✅ 已应用 |
 | 005 | `005_unified_queue_stats.sql` | 2025-11 | 统一队列统计 | ✅ 已应用 |
 | 006 | `006_video_queue_pool_system.sql` | 2025-11 | 视频流量池系统 | ✅ 已应用 |
+| 011 | `011_ai_review_queue.sql` | 2026-01 | AI审核队列与对比分析 | ✅ 已应用 |
 
 ---
 

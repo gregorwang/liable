@@ -83,7 +83,8 @@
           
           <el-button
             size="large"
-            :disabled="selectedReviews.length === 0"
+            :disabled="selectedReviews.length === 0 || batchLoading"
+            :loading="batchLoading"
             @click="handleBatchSubmit"
           >
             批量提交（{{ selectedReviews.length }}条）
@@ -107,8 +108,29 @@
             :key="task.id"
             class="task-card"
             shadow="hover"
+            :class="{
+              'is-selected': batchSelection[task.id],
+              'is-active': activeTaskId === task.id,
+              'is-filled': isReviewReady(task.id)
+            }"
+            :data-task-id="task.id"
+            @click="setActiveTask(task.id)"
+            @focusin="setActiveTask(task.id)"
           >
             <div v-if="reviews[task.id]" class="task-content">
+              <div class="task-header">
+                <span class="task-id">任务 #{{ task.id }}</span>
+                <div class="task-header-actions">
+                  <el-tag v-if="isReviewReady(task.id)" type="success" size="small">已填写</el-tag>
+                  <el-checkbox
+                    v-model="batchSelection[task.id]"
+                    :disabled="!isReviewReady(task.id)"
+                  >
+                    批量提交
+                  </el-checkbox>
+                </div>
+              </div>
+
               <!-- 评论内容 -->
               <div class="comment-section">
                 <h3 class="section-title">评论内容</h3>
@@ -166,7 +188,7 @@
               <div class="second-review-section">
                 <h3 class="section-title">二审审核</h3>
                 <el-form label-position="top" size="default">
-                  <el-form-item label="二审结果">
+                  <el-form-item label="二审结果" required>
                     <el-radio-group v-model="getTaskReview(task.id)!.is_approved">
                       <el-radio :value="true">通过</el-radio>
                       <el-radio :value="false">不通过</el-radio>
@@ -176,6 +198,7 @@
                   <el-form-item
                     v-if="getTaskReview(task.id) && !getTaskReview(task.id)!.is_approved"
                     label="违规标签"
+                    required
                   >
                     <el-checkbox-group v-model="getTaskReview(task.id)!.tags">
                       <el-checkbox
@@ -191,6 +214,7 @@
                   <el-form-item
                     v-if="getTaskReview(task.id) && !getTaskReview(task.id)!.is_approved"
                     label="二审原因"
+                    required
                   >
                     <el-input
                       v-model="getTaskReview(task.id)!.reason"
@@ -217,10 +241,12 @@
               <div class="task-actions">
                 <el-button
                   type="primary"
+                  :loading="submitLoading[task.id]"
                   @click="handleSubmitSingle(task.id)"
                 >
                   提交二审
                 </el-button>
+                <el-button @click="clearReviewForm(task.id)">清空</el-button>
               </div>
             </div>
           </el-card>
@@ -231,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
@@ -259,13 +285,62 @@ const returnCount = ref(1)
 const secondReviewTasks = ref<SecondReviewTask[]>([])
 const availableTags = ref<Tag[]>([])
 const reviews = reactive<Record<number, SubmitSecondReviewRequest>>({})
+const batchSelection = reactive<Record<number, boolean>>({})
+const submitLoading = reactive<Record<number, boolean>>({})
+const batchLoading = ref(false)
+const activeTaskId = ref<number | null>(null)
 const currentQueueName = ref<string>('')
 const completedToday = ref(0)
+const approvedToday = ref(0)
 const approvalRate = ref(0)
+
+const draftStorageKey = 'second_review_drafts'
+const statsStorageKey = 'second_review_stats'
+
+const loadTodayStats = () => {
+  const raw = localStorage.getItem(statsStorageKey)
+  if (!raw) {
+    completedToday.value = 0
+    approvedToday.value = 0
+    approvalRate.value = 0
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    const today = new Date().toISOString().slice(0, 10)
+    if (parsed?.date !== today) {
+      completedToday.value = 0
+      approvedToday.value = 0
+      approvalRate.value = 0
+      localStorage.setItem(statsStorageKey, JSON.stringify({ date: today, completed: 0, approved: 0 }))
+      return
+    }
+    completedToday.value = parsed.completed || 0
+    approvedToday.value = parsed.approved || 0
+    approvalRate.value = completedToday.value ? Math.round((approvedToday.value / completedToday.value) * 100) : 0
+  } catch (error) {
+    console.error('Failed to parse stats:', error)
+    completedToday.value = 0
+    approvedToday.value = 0
+    approvalRate.value = 0
+  }
+}
+
+const incrementTodayStats = (submitted: number, approved: number) => {
+  const today = new Date().toISOString().slice(0, 10)
+  completedToday.value += submitted
+  approvedToday.value += approved
+  approvalRate.value = completedToday.value ? Math.round((approvedToday.value / completedToday.value) * 100) : 0
+  localStorage.setItem(
+    statsStorageKey,
+    JSON.stringify({ date: today, completed: completedToday.value, approved: approvedToday.value })
+  )
+}
 
 const selectedReviews = computed(() => {
   return Object.entries(reviews)
-    .filter(([_, review]) => review.is_approved !== null)
+    .filter(([taskId]) => batchSelection[parseInt(taskId)] && isReviewReady(parseInt(taskId)))
     .map(([taskId, review]) => ({
       ...review,
       task_id: parseInt(taskId),
@@ -274,7 +349,15 @@ const selectedReviews = computed(() => {
 
 // 获取任务的review对象，确保类型安全
 const getTaskReview = (taskId: number) => {
-  return reviews[taskId] || null
+  if (!reviews[taskId]) {
+    reviews[taskId] = {
+      task_id: taskId,
+      is_approved: null as any,
+      tags: [],
+      reason: '',
+    }
+  }
+  return reviews[taskId]
 }
 
 onMounted(async () => {
@@ -294,9 +377,17 @@ onMounted(async () => {
     await loadTags()
     await loadMyTasks()
     initReviews()
+    restoreDrafts()
+    loadTodayStats()
   } catch (error) {
     console.error('Failed to load data:', error)
   }
+
+  window.addEventListener('keydown', handleKeyPress)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyPress)
 })
 
 const loadTags = async () => {
@@ -314,6 +405,7 @@ const loadMyTasks = async () => {
     secondReviewTasks.value = response.tasks
   } catch (error) {
     console.error('Failed to load second review tasks:', error)
+    ElMessage.error('加载任务失败，请稍后重试')
   }
 }
 
@@ -323,6 +415,12 @@ const initReviews = () => {
   Object.keys(reviews).forEach(key => {
     if (!taskIds.has(parseInt(key))) {
       delete reviews[parseInt(key)]
+    }
+  })
+
+  Object.keys(batchSelection).forEach(key => {
+    if (!taskIds.has(parseInt(key))) {
+      delete batchSelection[parseInt(key)]
     }
   })
   
@@ -336,10 +434,18 @@ const initReviews = () => {
         reason: '',
       }
     }
+
+    if (batchSelection[task.id] === undefined) {
+      batchSelection[task.id] = false
+    }
   })
   
   // 重置退单数量为1
   returnCount.value = Math.min(1, secondReviewTasks.value.length)
+
+  if (secondReviewTasks.value.length > 0 && !taskIds.has(activeTaskId.value || -1)) {
+    activeTaskId.value = secondReviewTasks.value[0].id
+  }
 }
 
 const handleClaimTasks = async () => {
@@ -354,8 +460,10 @@ const handleClaimTasks = async () => {
     ElMessage.success(`成功领取 ${res.count} 条二审任务`)
     await loadMyTasks()
     initReviews()
+    restoreDrafts()
   } catch (error) {
     console.error('Failed to claim second review tasks:', error)
+    ElMessage.error('领取任务失败，请稍后重试')
   } finally {
     claimLoading.value = false
   }
@@ -365,9 +473,11 @@ const handleRefresh = async () => {
   try {
     await loadMyTasks()
     initReviews()
+    restoreDrafts()
     ElMessage.success('刷新成功')
   } catch (error) {
     console.error('Failed to refresh:', error)
+    ElMessage.error('刷新失败，请稍后重试')
   }
 }
 
@@ -391,17 +501,174 @@ const validateReview = (review: SubmitSecondReviewRequest): boolean => {
   return true
 }
 
+const isReviewReady = (taskId: number) => {
+  const review = reviews[taskId]
+  if (!review) return false
+  if (review.is_approved === null) return false
+  if (!review.is_approved) {
+    return review.tags.length > 0 && review.reason.trim().length > 0
+  }
+  return true
+}
+
+const clearReviewForm = (taskId: number) => {
+  reviews[taskId] = {
+    task_id: taskId,
+    is_approved: null as any,
+    tags: [],
+    reason: '',
+  }
+  batchSelection[taskId] = false
+}
+
+const setActiveTask = (taskId: number) => {
+  activeTaskId.value = taskId
+}
+
+const scrollToTask = async (taskId: number) => {
+  await nextTick()
+  const el = document.querySelector(`[data-task-id="${taskId}"]`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+const moveActiveTask = (direction: 'next' | 'prev') => {
+  const ids = secondReviewTasks.value.map(task => task.id)
+  if (ids.length === 0) return
+  const currentId = activeTaskId.value ?? ids[0]
+  const currentIndex = ids.indexOf(currentId)
+  const nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1
+  const targetId = ids[Math.min(Math.max(nextIndex, 0), ids.length - 1)]
+  activeTaskId.value = targetId
+  scrollToTask(targetId)
+}
+
+const handleKeyPress = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  const targetTag = target?.tagName?.toLowerCase()
+  const isTyping = targetTag === 'input' || targetTag === 'textarea' || target?.isContentEditable
+  if (isTyping) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault()
+      handleBatchSubmit()
+    }
+    return
+  }
+
+  if (secondReviewTasks.value.length === 0) return
+  const currentId = activeTaskId.value ?? secondReviewTasks.value[0]?.id
+  if (!currentId) return
+
+  switch (event.key) {
+    case '1':
+      getTaskReview(currentId)!.is_approved = true as any
+      break
+    case '2':
+      getTaskReview(currentId)!.is_approved = false as any
+      break
+    case 'Enter':
+      event.preventDefault()
+      handleSubmitSingle(currentId)
+      break
+    case 'Escape':
+      event.preventDefault()
+      clearReviewForm(currentId)
+      break
+    case 'r':
+    case 'R':
+      event.preventDefault()
+      handleRefresh()
+      break
+    case 'Tab':
+      event.preventDefault()
+      moveActiveTask(event.shiftKey ? 'prev' : 'next')
+      break
+    default:
+      break
+  }
+}
+
+const restoreDrafts = () => {
+  const raw = localStorage.getItem(draftStorageKey)
+  if (!raw) return
+
+  try {
+    const saved = JSON.parse(raw)
+    const savedReviews = saved?.reviews || saved
+    const savedSelection = saved?.batchSelection || {}
+    const taskIds = new Set(secondReviewTasks.value.map(t => t.id))
+
+    Object.entries(savedReviews).forEach(([taskId, review]) => {
+      const id = Number(taskId)
+      if (!taskIds.has(id)) return
+      reviews[id] = { ...reviews[id], ...(review as SubmitSecondReviewRequest) }
+    })
+
+    Object.entries(savedSelection).forEach(([taskId, value]) => {
+      const id = Number(taskId)
+      if (!taskIds.has(id)) return
+      batchSelection[id] = Boolean(value)
+    })
+  } catch (error) {
+    console.error('Failed to restore drafts:', error)
+  }
+}
+
+let draftTimer: number | undefined
+
+watch(
+  reviews,
+  () => {
+    if (draftTimer) window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      const payload = { reviews, batchSelection }
+      localStorage.setItem(draftStorageKey, JSON.stringify(payload))
+    }, 500)
+  },
+  { deep: true }
+)
+
+watch(
+  batchSelection,
+  () => {
+    if (draftTimer) window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      const payload = { reviews, batchSelection }
+      localStorage.setItem(draftStorageKey, JSON.stringify(payload))
+    }, 500)
+  },
+  { deep: true }
+)
+
+watch(
+  () => secondReviewTasks.value.length,
+  (count) => {
+    document.title = `(${count}) 二审工作台`
+  },
+  { immediate: true }
+)
+
 const handleSubmitSingle = async (taskId: number) => {
   const review = reviews[taskId]
   if (!review || !validateReview(review)) return
   
   try {
+    submitLoading[taskId] = true
     await submitSecondReview(review)
     ElMessage.success('提交成功')
     secondReviewTasks.value = secondReviewTasks.value.filter(t => t.id !== taskId)
     delete reviews[taskId]
+    batchSelection[taskId] = false
+    incrementTodayStats(1, review.is_approved ? 1 : 0)
+    await loadMyTasks()
+    initReviews()
+    restoreDrafts()
   } catch (error) {
     console.error('Failed to submit second review:', error)
+    ElMessage.error('提交失败，请稍后重试')
+  } finally {
+    submitLoading[taskId] = false
   }
 }
 
@@ -431,18 +698,27 @@ const handleBatchSubmit = async () => {
       }
     )
     
+    batchLoading.value = true
     const res = await submitBatchSecondReviews(validReviews)
     ElMessage.success(`成功提交 ${res.submitted} 条二审`)
-    
-    // Remove submitted tasks
+
+    const approvedCount = validReviews.filter(review => review.is_approved).length
     validReviews.forEach((review) => {
       secondReviewTasks.value = secondReviewTasks.value.filter(t => t.id !== review.task_id)
       delete reviews[review.task_id]
+      batchSelection[review.task_id] = false
     })
+    incrementTodayStats(res.submitted || validReviews.length, approvedCount)
+    await loadMyTasks()
+    initReviews()
+    restoreDrafts()
   } catch (error: any) {
     if (error !== 'cancel') {
       console.error('Failed to batch submit:', error)
+      ElMessage.error('批量提交失败，请稍后重试')
     }
+  } finally {
+    batchLoading.value = false
   }
 }
 
@@ -490,9 +766,11 @@ const handleReturnTasks = async () => {
     // 刷新任务列表
     await loadMyTasks()
     initReviews()
+    restoreDrafts()
   } catch (error: any) {
     if (error !== 'cancel') {
       console.error('Failed to return tasks:', error)
+      ElMessage.error('退单失败，请稍后重试')
     }
   }
 }
@@ -667,6 +945,39 @@ const formatDate = (dateStr: string) => {
 .task-card {
   transition: all var(--transition-base);
   border: 1px solid var(--color-border-lighter);
+  position: relative;
+}
+
+.task-card.is-filled {
+  border-color: rgba(64, 158, 255, 0.5);
+}
+
+.task-card.is-selected {
+  border-color: var(--color-accent-main);
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+}
+
+.task-card.is-active {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(103, 194, 58, 0.2);
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-3);
+}
+
+.task-id {
+  font-weight: 600;
+  color: var(--color-text-100);
+}
+
+.task-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
 }
 
 .task-card:hover {

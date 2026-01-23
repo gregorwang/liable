@@ -164,8 +164,8 @@ func (r *VideoFirstReviewRepository) GetMyFirstReviewTasks(reviewerID int) ([]mo
 func (r *VideoFirstReviewRepository) CompleteFirstReviewTask(taskID, reviewerID int) error {
 	query := `
 		UPDATE video_first_review_tasks
-		SET status = 'completed', completed_at = NOW()
-		WHERE id = $1 AND reviewer_id = $2 AND status = 'in_progress'
+		SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+		WHERE id = $1 AND reviewer_id = $2 AND status IN ('in_progress', 'completed')
 	`
 	result, err := r.db.Exec(query, taskID, reviewerID)
 	if err != nil {
@@ -185,20 +185,63 @@ func (r *VideoFirstReviewRepository) CompleteFirstReviewTask(taskID, reviewerID 
 }
 
 // CreateFirstReviewResult creates a first review result
-func (r *VideoFirstReviewRepository) CreateFirstReviewResult(result *models.VideoFirstReviewResult) error {
+func (r *VideoFirstReviewRepository) CreateFirstReviewResult(result *models.VideoFirstReviewResult) (bool, error) {
 	// Convert QualityDimensions to JSON
 	qualityDimensionsJSON, err := json.Marshal(result.QualityDimensions)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	query := `
 		INSERT INTO video_first_review_results (task_id, reviewer_id, is_approved, quality_dimensions, overall_score, traffic_pool_result, reason, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		ON CONFLICT (task_id) DO NOTHING
 		RETURNING id, created_at
 	`
-	return r.db.QueryRow(query, result.TaskID, result.ReviewerID, result.IsApproved,
+	err = r.db.QueryRow(query, result.TaskID, result.ReviewerID, result.IsApproved,
 		qualityDimensionsJSON, result.OverallScore, result.TrafficPoolResult, result.Reason).Scan(&result.ID, &result.CreatedAt)
+	if err == nil {
+		return true, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+
+	existingQuery := `
+		SELECT id, reviewer_id, is_approved, quality_dimensions, overall_score, traffic_pool_result, reason, created_at
+		FROM video_first_review_results
+		WHERE task_id = $1
+	`
+	var qualityJSON []byte
+	var trafficPool sql.NullString
+	var reason sql.NullString
+	err = r.db.QueryRow(existingQuery, result.TaskID).Scan(
+		&result.ID,
+		&result.ReviewerID,
+		&result.IsApproved,
+		&qualityJSON,
+		&result.OverallScore,
+		&trafficPool,
+		&reason,
+		&result.CreatedAt,
+	)
+	if err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(qualityJSON, &result.QualityDimensions); err != nil {
+		return false, err
+	}
+	if trafficPool.Valid {
+		result.TrafficPoolResult = &trafficPool.String
+	} else {
+		result.TrafficPoolResult = nil
+	}
+	if reason.Valid {
+		result.Reason = &reason.String
+	} else {
+		result.Reason = nil
+	}
+	return false, nil
 }
 
 // ReturnFirstReviewTasks returns multiple first review tasks back to pending status for a specific reviewer

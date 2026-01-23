@@ -1,9 +1,11 @@
 <template>
   <router-view />
+  <WatermarkLayer />
 </template>
 
 <script setup lang="ts">
 // 应用根组件 - App Root Component
+import WatermarkLayer from './components/WatermarkLayer.vue'
 </script>
 
 <style>

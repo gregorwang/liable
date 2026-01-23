@@ -58,6 +58,9 @@ func (s *AuthService) Login(username, password string) (*models.User, error) {
 	if user.Status != "approved" {
 		return nil, errors.New("account not approved yet")
 	}
+	if user.Email != nil && !user.EmailVerified {
+		return nil, errors.New("email not verified")
+	}
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
