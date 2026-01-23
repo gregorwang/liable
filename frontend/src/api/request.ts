@@ -1,6 +1,8 @@
 import axios, { type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
 import { getToken, removeToken } from '../utils/auth'
+import { createTraceId } from '../utils/trace'
+import { buildTraceMessage } from '../utils/traceNotice'
 
 // Create axios instance
 const request = axios.create({
@@ -15,6 +17,12 @@ request.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    if (typeof window !== 'undefined') {
+      config.headers['X-Page-Url'] = window.location.href
+    }
+    const traceId = createTraceId()
+    config.headers['X-Trace-Id'] = traceId
+    ;(config as any)._traceId = traceId
     return config
   },
   (error) => {
@@ -38,7 +46,7 @@ request.interceptors.response.use(
       if (status === 429) {
         const retryAfter = data?.retry_after || '请稍后'
         const message = data?.error || '请求过于频繁'
-        ElMessage.warning(`${message}，${retryAfter}后再试`)
+        ElMessage.warning(buildTraceMessage(`${message}，${retryAfter}后再试`, error))
         return Promise.reject(error)
       }
 
@@ -49,11 +57,11 @@ request.interceptors.response.use(
         // 区分token过期和被强制登出
         const message = data?.error || '登录已过期，请重新登录'
         if (message.includes('blacklisted') || message.includes('revoked')) {
-          ElMessage.error('登录已失效，请重新登录')
+          ElMessage.error(buildTraceMessage('登录已失效，请重新登录', error))
         } else if (message.includes('force logout') || message.includes('logged out')) {
-          ElMessage.error('您的账号已在其他设备登录，请重新登录')
+          ElMessage.error(buildTraceMessage('您的账号已在其他设备登录，请重新登录', error))
         } else {
-          ElMessage.error('登录已过期，请重新登录')
+          ElMessage.error(buildTraceMessage('登录已过期，请重新登录', error))
         }
 
         window.location.href = '/login'
@@ -67,20 +75,20 @@ request.interceptors.response.use(
 
         // 显示更详细的权限错误信息
         if (data?.required_permission) {
-          ElMessage.warning(`缺少权限：${data.required_permission}`)
+          ElMessage.warning(buildTraceMessage(`缺少权限：${data.required_permission}`, error))
         } else if (data?.required_permissions) {
-          ElMessage.warning(`需要以下权限之一：${data.required_permissions.join(', ')}`)
+          ElMessage.warning(buildTraceMessage(`需要以下权限之一：${data.required_permissions.join(', ')}`, error))
         } else {
-          ElMessage.warning(message)
+          ElMessage.warning(buildTraceMessage(message, error))
         }
         return Promise.reject(error)
       }
 
       // Handle other errors
       const message = data?.error || data?.message || '请求失败'
-      ElMessage.error(message)
+      ElMessage.error(buildTraceMessage(message, error))
     } else {
-      ElMessage.error('网络错误，请检查连接')
+      ElMessage.error(buildTraceMessage('网络错误，请检查连接', error))
     }
 
     return Promise.reject(error)

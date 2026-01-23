@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { buildTraceMessage } from './traceNotice'
 
 /**
  * API 错误响应结构
@@ -7,6 +8,10 @@ export interface ApiErrorResponse {
     error?: string
     message?: string
     code?: string | number
+    error_type?: string
+    error_description?: string
+    trace_id?: string
+    http_status?: number
     details?: Record<string, any>
 }
 
@@ -161,7 +166,7 @@ export function handleApiError(
 
     // 显示错误消息
     if (showMessage && standardError.message) {
-        ElMessage.error(standardError.message)
+        ElMessage.error(buildTraceMessage(standardError.message, error))
     }
 
     // 记录错误日志
