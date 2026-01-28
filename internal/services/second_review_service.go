@@ -1,6 +1,7 @@
 package services
 
 import (
+	"comment-review-platform/internal/config"
 	"comment-review-platform/internal/models"
 	"comment-review-platform/internal/repository"
 	"comment-review-platform/internal/services/base"
@@ -8,23 +9,26 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type SecondReviewService struct {
-	secondReviewRepo *repository.SecondReviewRepository
-	tagRepo          *repository.TagRepository
-	commentRepo      *repository.CommentRepository
-	base             *base.BaseTaskService
+	secondReviewRepo  *repository.SecondReviewRepository
+	tagRepo           *repository.TagRepository
+	commentRepo       *repository.CommentRepository
+	punishmentService *PunishmentService
+	base              *base.BaseTaskService
 }
 
 func NewSecondReviewService() *SecondReviewService {
 	return &SecondReviewService{
-		secondReviewRepo: repository.NewSecondReviewRepository(),
-		tagRepo:          repository.NewTagRepository(),
-		commentRepo:      repository.NewCommentRepository(),
-		base:             base.NewBaseTaskService(base.SecondReviewTaskServiceConfig(), redispkg.Client),
+		secondReviewRepo:  repository.NewSecondReviewRepository(),
+		tagRepo:           repository.NewTagRepository(),
+		commentRepo:       repository.NewCommentRepository(),
+		punishmentService: NewPunishmentService(),
+		base:              base.NewBaseTaskService(base.SecondReviewTaskServiceConfig(), redispkg.Client),
 	}
 }
 
@@ -121,6 +125,11 @@ func (s *SecondReviewService) SubmitSecondReview(reviewerID int, req models.Subm
 		s.updateSecondReviewStats(result)
 	}
 
+	// Create punishment record if rejected
+	if createdResult && !result.IsApproved && (config.AppConfig == nil || config.AppConfig.PunishmentEnabled) {
+		go s.createPunishmentRecord(commentID, result, req)
+	}
+
 	return nil
 }
 
@@ -172,6 +181,67 @@ func (s *SecondReviewService) updateSecondReviewStats(result *models.SecondRevie
 	if err != nil {
 		log.Printf("Redis error when updating second review stats: %v", err)
 	}
+}
+
+func (s *SecondReviewService) createPunishmentRecord(
+	commentID int64,
+	result *models.SecondReviewResult,
+	req models.SubmitSecondReviewRequest,
+) {
+	if s.punishmentService == nil {
+		return
+	}
+
+	authorID, err := s.commentRepo.GetCommentAuthorID(commentID)
+	if err != nil {
+		log.Printf("Failed to get comment author: %v", err)
+		return
+	}
+
+	violationLevel := s.mapTagsToViolationLevel(result.Tags)
+	taskID := req.TaskID
+	punishment := &models.Punishment{
+		UserID:         authorID,
+		ContentType:    "comment",
+		ContentID:      strconv.FormatInt(commentID, 10),
+		ReviewTaskID:   &taskID,
+		ViolationLevel: violationLevel,
+		ViolationTags:  result.Tags,
+		Reason:         result.Reason,
+		Status:         "pending",
+	}
+
+	if _, err := s.punishmentService.CreatePunishment(punishment); err != nil {
+		log.Printf("Failed to create punishment record: %v", err)
+	}
+}
+
+// mapTagsToViolationLevel maps tag names to a violation level.
+func (s *SecondReviewService) mapTagsToViolationLevel(tags []string) int {
+	highRiskTags := map[string]struct{}{
+		"涉政": {},
+		"涉黄": {},
+		"诈骗": {},
+	}
+	mediumRiskTags := map[string]struct{}{
+		"辱骂": {},
+		"骚扰": {},
+		"广告": {},
+	}
+
+	for _, tag := range tags {
+		if _, ok := highRiskTags[tag]; ok {
+			return 4
+		}
+	}
+
+	for _, tag := range tags {
+		if _, ok := mediumRiskTags[tag]; ok {
+			return 2
+		}
+	}
+
+	return 1
 }
 
 // ReturnSecondReviewTasks allows a reviewer to return second review tasks back to the pool
